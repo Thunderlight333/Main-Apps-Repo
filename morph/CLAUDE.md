@@ -16,6 +16,12 @@ Vite + vanilla JS ES modules, with no UI framework. Entry is `src/main.js`, the 
 - Word/Excel/PowerPoint ↔ PDF are intentionally NOT included. The PDF screen says so.
 - Gemini's suggestion of Flutter/Tauri was considered; we kept the PWA (one codebase, no app-store ban). Tauri could wrap it later.
 
+## Navigation, multitasking, Back button (app.js, core/tasks.js)
+- **Screens stay alive:** Convert, Compress, Editor, PDF, Downloader and Links are kept (hidden) when you switch screens, so their jobs keep running. Home and Settings are rebuilt each visit. Views can expose `hide()` (pause media) and `busy`. Files sent to an idle tool start it fresh; a busy tool gets them added. The PDF view keeps each busy tool controller alive (`ctls` map) and tidies idle ones.
+- **Tasks:** every job calls `tasks.start({ title, route, iconName, cancel })` and reports `progress/status/done/fail/cancelled` (this replaces direct `busy()` calls: tasks.js calls busy itself). Shown as a pill with a progress ring in the top bar, a thin line at the very top, and a Tasks sheet (Open / Cancel / Clear finished). A job finishing on another screen shows a toast with an Open button.
+- **ffmpeg.wasm** has one instance, so `runFFmpeg` queues jobs ("Waiting for the universal engine…").
+- **Back button:** switching screens uses `history.replaceState` (in-app `#/` links are intercepted), so history never piles up. After the first touch the app keeps a guard entry: Back closes a dialog, then goes up (PDF tool → PDF tools → Home), then on Home shows "Press back again to exit" (or a warning with a Stay button when tasks are running); a second Back leaves. Browsers only honour this after the user has touched the page.
+
 ## Engines
 - `engines/media.js`: Mediabunny (WebCodecs). Handles probe, transcode (crop/rotate/flip/trim/resize/bitrate), and filmstrip. It registers the mp3/aac/flac encoder extensions when the browser lacks them.
 - `engines/ffmpeg.js`: ffmpeg.wasm fallback (AVI, GIF, speed changes, unknown formats). The core is copied to `public/ffmpeg/` by `scripts/copy-assets.mjs` and cached at runtime.

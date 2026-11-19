@@ -2,7 +2,8 @@
 import { h, fmtBytes } from '../core/dom.js';
 import { icon } from '../core/icons.js';
 import { pageHeader, dropZone, friendly } from '../core/components.js';
-import { segmented, field, toast, progressBar, modal, busy, feedback } from '../core/ui.js';
+import { segmented, field, toast, progressBar, modal, feedback } from '../core/ui.js';
+import { tasks } from '../core/tasks.js';
 import { kindOf } from '../core/files.js';
 import { shareStatus, upload, myLinks, removeLink, linkStats, qrSvg, updateLink, publicBase } from '../engines/share.js';
 import { videoThumb } from '../engines/thumbs.js';
@@ -71,19 +72,19 @@ export default function linksView({ files } = {}) {
       h('div.lc-body', h('strong.lc-name', f.name), h('span.lc-meta', `Uploading · ${fmtBytes(f.size)}`), pb),
       h('div.lc-actions', h('button.icon-btn.sm', { 'aria-label': 'Cancel', onclick: () => ac.abort() }, icon('x', 16))));
     uploads.prepend(row); paintEmpty();
-    busy(true);
+    const tk = tasks.start({ title: `Share link: ${f.name}`, route: 'links', iconName: 'link', cancel: () => ac.abort() });
     const thumbP = kindOf(f) === 'video' ? videoThumb(f, 0.1, 200) : kindOf(f) === 'image' ? thumbOf(f, 200).then(toDataUrl) : Promise.resolve(null);
-    upload(f, { ttl, health, signal: ac.signal, onProgress: (p) => pb.set(p) })
+    upload(f, { ttl, health, signal: ac.signal, onProgress: (p) => { pb.set(p); tk.progress(p, 'Uploading…'); } })
       .then(async (l) => {
         const thumb = await thumbP.catch(() => null);
         if (thumb) { updateLink(l.id, { thumb }); l.thumb = thumb; }
         row.remove();
         try { await navigator.clipboard.writeText(l.page); toast('Link ready and copied', 'success'); } catch { toast('Link ready', 'success'); }
         feedback('done');
+        tk.done('Link ready');
         renderList();
       })
-      .catch((e) => { if (e.cancelled) row.remove(); else { row.querySelector('.lc-meta').textContent = friendly(e); row.querySelector('.lc-meta').className = 'q-err'; pb.hidden = true; feedback('error'); } paintEmpty(); })
-      .finally(() => busy(false));
+      .catch((e) => { if (e.cancelled) { row.remove(); tk.cancelled(); } else { row.querySelector('.lc-meta').textContent = friendly(e); row.querySelector('.lc-meta').className = 'q-err'; pb.hidden = true; feedback('error'); tk.fail(friendly(e)); } paintEmpty(); });
   }
 
   async function refresh() {

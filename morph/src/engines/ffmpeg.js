@@ -42,7 +42,21 @@ function terminate() { try { ff?.terminate(); } catch { /* */ } ff = null; loadi
  * Run ffmpeg on one input file. buildArgs(inPath, outPath) => string[]
  * Input is mounted with WORKERFS (read lazily, not copied into memory).
  */
-export async function runFFmpeg(file, outExt, buildArgs, { run, name, mime, onProgress, onStatus, signal, duration, extraFiles = [] }) {
+// There is one universal engine; when several tasks need it at once they take turns.
+let line = Promise.resolve(), waiting = 0;
+export function runFFmpeg(file, outExt, buildArgs, o) {
+  const wait = waiting > 0;
+  waiting++;
+  if (wait) { o.onStatus?.('Waiting for the universal engine (another task is using it)…'); o.onProgress?.(0); }
+  const p = line.then(() => {
+    if (o.signal?.aborted) throw Object.assign(new Error('Cancelled'), { cancelled: true });
+    return runNow(file, outExt, buildArgs, o);
+  }).finally(() => { waiting--; });
+  line = p.catch(() => {});
+  return p;
+}
+
+async function runNow(file, outExt, buildArgs, { run, name, mime, onProgress, onStatus, signal, duration, extraFiles = [] }) {
   if (!settings.get('ffmpegFallback')) throw new Error('This file needs the universal engine, which is turned off in Settings.');
   const inst = await loadFFmpeg(onStatus);
   onStatus?.('Processing with the universal engine…');

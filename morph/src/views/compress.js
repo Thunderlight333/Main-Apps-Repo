@@ -200,7 +200,7 @@ export default function compressView({ files }) {
   }
   function begin(first) {
     const run = startRun(queue.items.length, outName(first.file.name, extOf(first.file.name) || 'mp4', 'compressed'));
-    queue.run((it, ctx) => job(it, run, ctx), { label: 'Compressing', tool: 'compress' });
+    queue.run((it, ctx) => job(it, run, ctx), { label: 'Compressing', tool: 'compress', task: { icon: 'compress' } });
     bar.update();
   }
   async function job(it, run, ctx) {
@@ -248,7 +248,7 @@ export default function compressView({ files }) {
     body);
   dockBar(bar, body.querySelector('.tool-side'), el);
   if (files?.length) addFiles(files);
-  return { el, accept: (f) => { addFiles(f); }, destroy: () => queue.cancel() };
+  return { el, accept: (f) => { addFiles(f); }, destroy: () => queue.cancel(), get busy() { return queue.running; } };
 }
 function kindOfSafe(f) {
   const t = f.type || '';

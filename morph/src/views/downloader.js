@@ -1,7 +1,8 @@
 import { h, fmtBytes, fmtTime, clamp } from '../core/dom.js';
 import { icon } from '../core/icons.js';
 import { pageHeader, resultActions, friendly, toFile } from '../core/components.js';
-import { toast, progressBar, busy, feedback, notify, modal, toggle } from '../core/ui.js';
+import { toast, progressBar, feedback, notify, modal, toggle } from '../core/ui.js';
+import { tasks } from '../core/tasks.js';
 import { findUrl, readClipboardFiles, outName } from '../core/files.js';
 import { settings } from '../core/settings.js';
 import { startRun } from '../core/save.js';
@@ -225,13 +226,13 @@ export default function downloaderView() {
     downloads.prepend(item);
     item.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
     const run = startRun(1, `${detectSite(u).replace(/\W+/g, '-')}-${Date.now()}.${o.ext}`);
-    busy(true);
+    const tk = tasks.start({ title: `Download ${(i?.title || detectSite(u)).slice(0, 60)}`, route: 'download', iconName: 'download', cancel: () => ac.abort() });
     (async () => {
       try {
         let res = await downloadLink(u, {
           option: o.id, trim: cut, run, signal: ac.signal,
-          onStatus: (m) => (msg.textContent = m),
-          onProgress: (p, got) => { pb.indeterminate(p < 0); pb.set(Math.max(0, p), p < 0 ? (got ? fmtBytes(got) : '…') : undefined); },
+          onStatus: (m) => { msg.textContent = m; tk.status(m); },
+          onProgress: (p, got) => { pb.indeterminate(p < 0); pb.set(Math.max(0, p), p < 0 ? (got ? fmtBytes(got) : '…') : undefined); tk.progress(p < 0 ? -1 : p, p < 0 && got ? `${fmtBytes(got)} downloaded` : undefined); },
         });
         if (cut && !res.trimmed) {
           // The server couldn't cut it (no ffmpeg, cobalt, or the host refused): trim here.
@@ -241,7 +242,7 @@ export default function downloaderView() {
           const ext = res.name.split('.').pop().toLowerCase();
           res = await processMedia(src, { container: ext, trim: cut, duration: cut.end }, {
             run: startRun(1, outName(res.name, ext, 'clip')), name: outName(res.name, ext, 'clip'), signal: ac.signal,
-            onProgress: (p) => pb.set(p), onStatus: (m) => (msg.textContent = m), duration: cut.end - cut.start,
+            onProgress: (p) => { pb.set(p); tk.progress(p, 'Trimming…'); }, onStatus: (m) => (msg.textContent = m), duration: cut.end - cut.start,
           });
         }
         history.add({ tool: 'download', name: res.name, inSize: res.size, outSize: res.size, kind: o.kind });
@@ -255,10 +256,11 @@ export default function downloaderView() {
             o.kind === 'video' ? h('button.chip', { onclick: () => app.go('edit', [f]) }, 'Edit') : null,
             h('button.chip', { onclick: () => app.go('compress', [f]) }, 'Compress')));
         feedback('done'); notify('Morph: download finished', res.name);
+        tk.done(`${res.name} · ${fmtBytes(res.size)}`);
       } catch (e) {
-        if (e.name === 'AbortError' || e.cancelled) { item.classList.add('leaving'); setTimeout(() => item.remove(), 200); }
-        else { msg.textContent = friendly(e); msg.className = 'q-err'; pb.hidden = true; cancel.replaceChildren(icon('trash', 16)); cancel.onclick = () => item.remove(); feedback('error'); }
-      } finally { busy(false); }
+        if (e.name === 'AbortError' || e.cancelled) { item.classList.add('leaving'); setTimeout(() => item.remove(), 200); tk.cancelled(); }
+        else { msg.textContent = friendly(e); msg.className = 'q-err'; pb.hidden = true; cancel.replaceChildren(icon('trash', 16)); cancel.onclick = () => item.remove(); feedback('error'); tk.fail(friendly(e)); }
+      }
     })();
   }
 
@@ -327,5 +329,6 @@ export default function downloaderView() {
     el,
     acceptText: (u, { sheet = false } = {}) => { input.value = u; siteBadge.hidden = false; siteBadge.textContent = detectSite(u); if (sheet) openSheet(u); else loadInfo(u); return true; },
     destroy: () => { removeEventListener('online', applyNet); removeEventListener('offline', applyNet); video?.pause(); },
+    hide: () => video?.pause(),
   };
 }

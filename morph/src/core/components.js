@@ -2,7 +2,7 @@
 import { h, fmtBytes, uid } from './dom.js';
 import { icon } from './icons.js';
 import { kindOf, KIND_ICON, pickFiles, readClipboardFiles } from './files.js';
-import { progressBar, toast, feedback, notify, busy } from './ui.js';
+import { progressBar, toast, feedback, notify } from './ui.js';
 import { download, shareResult, saveAll } from './save.js';
 import { settings } from './settings.js';
 import { history } from './history.js';
@@ -11,6 +11,7 @@ import { videoThumb } from '../engines/thumbs.js';
 import { app } from '../app.js';
 import { saver, effectiveParallel } from './power.js';
 import { sortable, settle, reorderChildren, SORTS } from './sortable.js';
+import { tasks } from './tasks.js';
 
 export function pageHeader(title, sub, iconName, extra) {
   return h('header.page-head',
@@ -191,14 +192,21 @@ export function createQueue({ accept = () => true, onChange } = {}) {
     get running() { return !!running; },
     cancel() { running?.abort(); },
     /** Run job(it, ctx) for every ready item. ctx: { onProgress, onStatus, signal } */
-    async run(job, { label = 'Processing', tool = '' } = {}) {
+    async run(job, { label = 'Processing', tool = '', task: taskInfo } = {}) {
       if (running) return;
       const todo = items.filter((x) => x.status !== 'working');
       if (!todo.length) return;
       running = new AbortController();
       const signal = running.signal;
       renumber();
-      busy(true);
+      const all = todo.slice();
+      const ctl = running;
+      const tk = tasks.start({ title: taskInfo?.title || `${label} ${all.length} file${all.length > 1 ? 's' : ''}`, route: taskInfo?.route || tool, iconName: taskInfo?.icon, cancel: () => ctl.abort() });
+      const report = () => {
+        const p = all.reduce((a, x) => a + (x.status === 'done' || x.status === 'error' || x.status === 'cancelled' ? 1 : x.status === 'working' ? Math.max(0, Math.min(1, x.progress || 0)) : 0), 0) / all.length;
+        const fin = all.filter((x) => x.status === 'done').length;
+        tk.progress(p, all.length > 1 ? `${fin} of ${all.length} done` : (all[0].msg || label));
+      };
       const throttle = saver() ? 250 : 80;
       const t0 = performance.now();
       let ok = 0, fail = 0;
@@ -210,8 +218,8 @@ export function createQueue({ accept = () => true, onChange } = {}) {
           try {
             const res = await job(it, {
               signal,
-              onProgress: (p) => { it.progress = p; const now = performance.now(); if (now - last > throttle || p >= 1) { last = now; paint(it); } },
-              onStatus: (m) => { it.msg = m; paint(it); },
+              onProgress: (p) => { it.progress = p; const now = performance.now(); if (now - last > throttle || p >= 1) { last = now; paint(it); report(); } },
+              onStatus: (m) => { it.msg = m; paint(it); report(); },
             });
             it.results = res == null ? [] : Array.isArray(res) ? res : [res];
             it.status = 'done'; ok++;
@@ -222,12 +230,15 @@ export function createQueue({ accept = () => true, onChange } = {}) {
             if (e.cancelled || signal.aborted) it.status = 'cancelled';
             else { it.status = 'error'; it.error = friendly(e); fail++; }
           }
-          paint(it);
+          paint(it); report();
         }
       };
       const n = effectiveParallel();
       await Promise.all(Array.from({ length: n }, worker));
-      running = null; busy(false); renumber();
+      running = null; renumber();
+      if (signal.aborted && !ok) tk.cancelled();
+      else if (fail && !ok) tk.fail(`${fail} failed`);
+      else tk.done(fail ? `${ok} done, ${fail} failed` : `${ok} file${ok > 1 ? 's' : ''} ready`);
       const secs = ((performance.now() - t0) / 1000).toFixed(1);
       if (ok) { feedback('done'); notify('Morph: done', `${ok} file(s) finished in ${secs}s`); }
       if (fail) feedback('error');

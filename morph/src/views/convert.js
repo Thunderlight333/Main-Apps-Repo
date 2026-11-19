@@ -99,7 +99,7 @@ export default function convertView({ files }) {
     group?.promise.catch(() => {});
     const count = queue.items.length - (group ? imgs.length - 1 : 0);
     const run = startRun(count, outName(first.file.name, f0 === 'jpg' && first.kind === 'pdf' ? 'zip' : f0), MIME[f0] || IMG_MIME[f0]);
-    queue.run((it, ctx) => job(it, run, ctx, group), { label: 'Converting', tool: 'convert' });
+    queue.run((it, ctx) => job(it, run, ctx, group), { label: 'Converting', tool: 'convert', task: { icon: 'convert' } });
     bar.update();
   }
   function deferred() { let resolve, reject; const promise = new Promise((a, b) => { resolve = a; reject = b; }); return { promise, resolve, reject }; }
@@ -185,5 +185,5 @@ export default function convertView({ files }) {
     body);
   dockBar(bar, side, el);
   if (files?.length) addFiles(files);
-  return { el, accept: (f) => { addFiles(f); }, destroy: () => queue.cancel() };
+  return { el, accept: (f) => { addFiles(f); }, destroy: () => queue.cancel(), get busy() { return queue.running; } };
 }

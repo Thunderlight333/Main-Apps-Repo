@@ -2,7 +2,8 @@
 import { h, fmtTime, fmtBytes, clamp } from '../core/dom.js';
 import { icon } from '../core/icons.js';
 import { pageHeader, dropZone, resultActions, friendly } from '../core/components.js';
-import { segmented, select, field, progressBar, toast, busy, feedback, notify, slider, toggle } from '../core/ui.js';
+import { segmented, select, field, progressBar, toast, feedback, notify, slider, toggle, confirmDialog } from '../core/ui.js';
+import { tasks } from '../core/tasks.js';
 import { kindOf, outName, pickFiles } from '../core/files.js';
 import { startRun, download } from '../core/save.js';
 import { history } from '../core/history.js';
@@ -19,16 +20,20 @@ export default function editorView({ files }) {
   root.append(header, landing);
   let ed = null;
 
-  function load(file) {
+  async function load(file) {
     if (!file) return;
     if (kindOf(file) !== 'video') { toast('Please choose a video file', 'error'); return; }
+    if (ed?.busy && !(await confirmDialog('Replace the video?', 'An export is still running. Opening another video will stop it.', 'Stop and open', true))) return;
     ed?.destroy();
     landing.hidden = true;
     ed = createEditor(file, () => { ed?.destroy(); ed = null; landing.hidden = false; });
     root.append(ed.el);
   }
   if (files?.length) load(files.find((f) => kindOf(f) === 'video') || files[0]);
-  return { el: root, accept: (f) => { const v = f.find((x) => kindOf(x) === 'video'); if (!v) return false; load(v); }, destroy: () => ed?.destroy() };
+  return {
+    el: root, accept: (f) => { const v = f.find((x) => kindOf(x) === 'video'); if (!v) return false; load(v); }, destroy: () => ed?.destroy(),
+    hide: () => ed?.hide(), get busy() { return !!ed?.busy; },
+  };
 }
 
 function createEditor(file, onClose) {
@@ -335,7 +340,8 @@ function createEditor(file, onClose) {
     ac = new AbortController();
     exportBtn.classList.add('danger'); exportBtn.replaceChildren(icon('x', 18), 'Cancel');
     progress.hidden = false; progress.set(0); resultHost.replaceChildren();
-    busy(true);
+    const ctl = ac;
+    const tk = tasks.start({ title: `Export ${file.name}`, route: 'edit', iconName: 'scissors', cancel: () => ctl.abort() });
     video.pause();
     try {
       info ||= await probe(file).catch(() => null);
@@ -355,17 +361,18 @@ function createEditor(file, onClose) {
       };
       const res = await processMedia(file, opts, {
         run, name, signal: ac.signal, duration: (S.end - S.start) / S.speed,
-        onProgress: (p) => progress.set(p), onStatus: (m) => (status.textContent = m),
+        onProgress: (p) => { progress.set(p); tk.progress(p); }, onStatus: (m) => { status.textContent = m; tk.status(m); },
       });
       status.textContent = `Done: ${fmtBytes(res.size)}`;
+      tk.done(`${res.name} · ${fmtBytes(res.size)}`);
       resultHost.replaceChildren(h('div.result-card', h('div.rc-info', icon('check', 18), h('strong', res.name), h('span.muted', fmtBytes(res.size))), h('div.rc-actions', resultActions([res]))));
       history.add({ tool: 'edit', name: file.name, inSize: file.size, outSize: res.size, kind: 'video' });
       feedback('done'); notify('Morph: export finished', res.name);
     } catch (e) {
-      if (!e.cancelled && e.name !== 'AbortError') { status.textContent = ''; toast(friendly(e), 'error', 6000); feedback('error'); }
-      else status.textContent = 'Cancelled';
+      if (!e.cancelled && e.name !== 'AbortError') { status.textContent = ''; toast(friendly(e), 'error', 6000); feedback('error'); tk.fail(friendly(e)); }
+      else { status.textContent = 'Cancelled'; tk.cancelled(); }
     } finally {
-      busy(false); ac = null; progress.hidden = true;
+      ac = null; progress.hidden = true;
       exportBtn.classList.remove('danger'); paintSummary();
     }
   }
@@ -389,6 +396,7 @@ function createEditor(file, onClose) {
   // keyboard shortcuts
   const onKey = (e) => {
     if (e.target.closest('input, textarea, select')) return;
+    if (!el.isConnected || el.closest('[hidden]') || document.querySelector('.modal-wrap')) return; // another screen is showing
     if (e.code === 'Space') { e.preventDefault(); togglePlay(); }
     else if (e.key === 'i' || e.key === '[') { S.start = Math.min(video.currentTime, S.end - 0.1); paintTrim(); }
     else if (e.key === 'o' || e.key === ']') { S.end = Math.max(video.currentTime, S.start + 0.1); paintTrim(); }
@@ -422,6 +430,8 @@ function createEditor(file, onClose) {
   setTab('trim'); paintSummary();
   return {
     el,
+    get busy() { return !!ac; },
+    hide() { video.pause(); musicEl?.pause(); },
     destroy() {
       destroyed = true; ac?.abort(); ro.disconnect(); cancelAnimationFrame(rafId);
       removeEventListener('keydown', onKey);

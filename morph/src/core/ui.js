@@ -3,21 +3,31 @@ import { icon } from './icons.js';
 import { settings } from './settings.js';
 
 // ---------- Toasts ----------
-export function toast(msg, type = 'info', ms = 3200) {
+/** Small message at the bottom. Optional { action: { label, onClick } } adds a button (like "Open"). Returns { close }. */
+export function toast(msg, type = 'info', ms = 3200, { action, key } = {}) {
   const host = document.getElementById('toasts');
-  const t = h('div.toast', { class: `t-${type}`, role: 'status' },
-    icon(type === 'error' ? 'info' : type === 'success' ? 'check' : 'info', 18), h('span', msg));
+  if (key) host.querySelector(`[data-key="${key}"]`)?.remove();
+  let timer;
+  const close = () => { clearTimeout(timer); t.classList.add('out'); setTimeout(() => t.remove(), 250); };
+  const t = h('div.toast', { class: `t-${type}`, role: 'status', 'data-key': key || null },
+    icon(type === 'error' ? 'info' : type === 'success' ? 'check' : 'info', 18), h('span', msg),
+    action ? h('button.toast-act', { onclick: () => { close(); action.onClick(); } }, action.label) : null);
   host.append(t);
   while (host.children.length > 3) host.firstElementChild.remove();
-  setTimeout(() => { t.classList.add('out'); setTimeout(() => t.remove(), 250); }, ms);
+  timer = setTimeout(close, ms);
+  return { close, el: t };
 }
 
 // ---------- Modal ----------
+const openModals = [];
+/** Close the top dialog (used by the phone Back button). Returns true if one was open. */
+export function closeTopModal() { const c = openModals.at(-1); if (!c) return false; c(); return true; }
 export function modal({ title, body, actions = [], wide = false, sheet = false, onClose }) {
   const host = document.getElementById('modals');
   let closed = false;
   const close = (v) => {
     if (closed) return; closed = true;
+    const i = openModals.indexOf(close); if (i >= 0) openModals.splice(i, 1);
     wrap.classList.add('out'); setTimeout(() => wrap.remove(), 200);
     document.removeEventListener('keydown', esc);
     onClose && onClose(v);
@@ -30,6 +40,7 @@ export function modal({ title, body, actions = [], wide = false, sheet = false, 
       h('button.btn', { class: a.primary ? 'primary' : a.danger ? 'danger' : 'ghost', onclick: () => { const r = a.onClick?.(); if (r !== false) close(a.value); } }, a.label))) : null);
   const wrap = h('div.modal-wrap', { class: sheet ? 'sheet' : '', onclick: (e) => e.target === wrap && close() }, box);
   host.append(wrap);
+  openModals.push(close);
   document.addEventListener('keydown', esc);
   return { close, el: box };
 }

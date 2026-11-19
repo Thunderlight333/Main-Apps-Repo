@@ -3,7 +3,8 @@ import { h, $, clear } from './core/dom.js';
 import { icon } from './core/icons.js';
 import { settings, applyAppearance } from './core/settings.js';
 import { kindOf, filesFromDataTransfer, findUrl } from './core/files.js';
-import { toast, modal } from './core/ui.js';
+import { toast, modal, closeTopModal } from './core/ui.js';
+import { tasks, taskPill, bindTasks } from './core/tasks.js';
 
 export const NAV = [
   { id: 'home', label: 'Home', icon: 'home', mobile: true },
@@ -27,16 +28,24 @@ const loaders = {
   settings: () => import('./views/settings.js'),
 };
 
-let current = null; // { id, view: { el, accept?(files), acceptText?(t), destroy?() } }
+let current = null; // { id, view: { el, accept?(files), acceptText?(t), destroy?(), hide?(), route?(sub, files), busy? }, page }
 let pending = null; // files handed to the next view
 let navToken = 0;
+let shown = ''; // route on screen, e.g. "convert" or "pdf/merge"
+// Tool screens stay alive in the background (hidden), so their jobs keep running while you use other tools.
+const KEEP = new Set(['convert', 'compress', 'edit', 'pdf', 'download', 'links']);
+const alive = new Map(); // id -> { id, view, page, scroll }
 
 export const app = {
+  /** Switch screens. Never adds Back-button history: Back is handled by the app (see backButton()). */
   go(route, files) {
     if (files) pending = files;
+    disarmExit();
     const target = '#/' + route;
-    if (location.hash === target) render(); else location.hash = target;
+    if (location.hash !== target) history.replaceState(history.state, '', target);
+    render();
   },
+  route: () => shown,
   takePending() { const p = pending; pending = null; return p; },
   /** Files arrived (drop/paste/share/open-with). */
   incoming(files) {
@@ -91,23 +100,86 @@ function routeFromHash() {
 async function render() {
   const { id, sub } = routeFromHash();
   const token = ++navToken;
+  const files = app.takePending();
   document.querySelectorAll('[data-nav]').forEach((a) => a.classList.toggle('active', a.dataset.nav === id));
   const host = $('#view');
-  if (current?.id === id && current.view?.route) { current.view.route(sub); return; }
-  host.classList.add('loading');
-  let mod;
-  try { mod = await loaders[id](); } catch (e) {
-    console.error(e); toast('Could not load this screen. If you are offline, open it once while online.', 'error'); host.classList.remove('loading'); return;
+  let entry = alive.get(id) || (current?.id === id ? current : null);
+  // Files sent to a tool that is idle: start it fresh with just those files (a busy tool gets them added).
+  if (entry && files?.length && !entry.view.route && !entry.view.busy && !['download', 'links'].includes(id)) {
+    if (entry === current) current = null;
+    dispose(entry); entry = null;
   }
-  if (token !== navToken) return;
-  current?.view?.destroy?.();
-  const view = mod.default({ sub, files: app.takePending() });
-  current = { id, view };
-  host.classList.remove('loading');
-  const page = h('div.page', view.el);
-  clear(host).append(page);
-  host.scrollTop = 0; window.scrollTo(0, 0);
+  if (!entry) {
+    host.classList.add('loading');
+    let mod;
+    try { mod = await loaders[id](); } catch (e) {
+      console.error(e); toast('Could not load this screen. If you are offline, open it once while online.', 'error'); host.classList.remove('loading'); return;
+    }
+    host.classList.remove('loading');
+    if (token !== navToken) return;
+    const view = mod.default({ sub, files });
+    entry = { id, view, page: h('div.page', view.el), scroll: 0 };
+    if (KEEP.has(id)) alive.set(id, entry);
+    host.append(entry.page);
+  } else if (entry.view.route) entry.view.route(sub, files);
+  else if (files?.length) entry.view.accept?.(files);
+  if (current && current !== entry) {
+    current.scroll = window.scrollY;
+    if (alive.get(current.id) === current) { current.page.hidden = true; current.view.hide?.(); }
+    else dispose(current); // Home and Settings are rebuilt each time
+  }
+  const fresh = current !== entry;
+  current = entry;
+  entry.page.hidden = false;
+  shown = [id, ...sub].join('/');
+  if (fresh) { entry.page.classList.remove('page'); void entry.page.offsetWidth; entry.page.classList.add('page'); window.scrollTo(0, entry.scroll || 0); }
+  else if (sub.length || files) window.scrollTo(0, 0);
+  tasks.seen(shown);
   document.title = `${NAV.find((n) => n.id === id).label} · Morph`;
+}
+function dispose(e) { e.view?.destroy?.(); e.page?.remove(); if (alive.get(e.id) === e) alive.delete(e.id); }
+
+// ----- Back button (phones, browsers): like big apps -----
+// Back closes a dialog, then goes up (PDF tool → PDF tools → Home). On Home, the first Back shows
+// "Press back again to exit" (or a warning when tasks are still running); a second Back leaves.
+// Switching screens never adds history, so Back never walks through every screen you visited.
+let guarded = false, armed = false, armTimer = 0, exitMsg = null;
+function installGuard() {
+  if (guarded) return;
+  guarded = true;
+  removeEventListener('pointerdown', installGuard, true); removeEventListener('keydown', installGuard, true);
+  history.replaceState({ morph: 'base' }, '', location.href);
+  history.pushState({ morph: 'top' }, '', location.href);
+}
+function pushTop() { history.pushState({ morph: 'top' }, '', '#/' + shown); }
+function disarmExit() {
+  if (!armed) return;
+  armed = false; clearTimeout(armTimer); exitMsg?.close(); exitMsg = null;
+  pushTop();
+}
+function onBack(e) {
+  if (!guarded || armed || e.state?.morph !== 'base') return; // not our Back (e.g. a typed address)
+  // We are on the "base" entry now; keep its address in step with the screen.
+  history.replaceState({ morph: 'base' }, '', '#/' + shown);
+  if (closeTopModal()) { pushTop(); return; }
+  const [id, ...sub] = shown.split('/');
+  if (sub.length) { pushTop(); app.go(id); return; }
+  if (id !== 'home') {
+    pushTop();
+    const working = tasks.running().length;
+    if (working) toast(`${working === 1 ? 'Your task keeps' : `${working} tasks keep`} running. Progress is shown at the top.`, 'info', 3000, { key: 'bg' });
+    app.go('home');
+    return;
+  }
+  // Home: arm "press again to exit".
+  armed = true;
+  document.querySelector('#toasts [data-key="bg"]')?.remove();
+  const n = tasks.running().length;
+  const ms = n ? 5000 : 2200;
+  exitMsg = n
+    ? toast(`${n === 1 ? 'A task is' : `${n} tasks are`} still running. Press back again to exit and stop ${n === 1 ? 'it' : 'them'}.`, 'error', ms, { key: 'exit', action: { label: 'Stay', onClick: disarmExit } })
+    : toast('Press back again to exit', 'info', ms, { key: 'exit' });
+  armTimer = setTimeout(disarmExit, ms);
 }
 
 function navLink(n, cls) {
@@ -122,14 +194,15 @@ function buildShell() {
     h('a.brand', { href: '#/' }, logo(), h('span', 'Morph')),
     h('nav.side-nav', NAV.map((n) => navLink(n, 'side-link'))),
     h('div.side-foot', installBtn, h('div.side-note', icon('lock', 14), h('span', 'Files never leave your device'))));
+  const tp = taskPill();
   const top = h('header.topbar',
     h('a.brand.m-only', { href: '#/' }, logo(), h('span', 'Morph')),
-    h('div.top-right', offline,
+    h('div.top-right', offline, tp.pill,
       h('a.icon-btn.m-only', { href: '#/download', 'data-nav': 'download', 'aria-label': 'Downloader' }, icon('download')),
       h('a.icon-btn.m-only', { href: '#/settings', 'data-nav': 'settings', 'aria-label': 'Settings' }, icon('settings'))));
   const tabs = h('nav.tabbar', NAV.filter((n) => n.mobile).map((n) => navLink(n, 'tab')));
   const drop = h('div.drop-overlay', { 'aria-hidden': 'true' }, h('div.do-box', icon('upload', 36), h('strong', 'Drop to add'), h('span', 'Videos, photos, audio, PDFs, folders')));
-  root.append(side, h('div.main', top, h('main#view'), tabs), drop);
+  root.append(side, h('div.main', top, h('main#view'), tabs), drop, tp.line);
 
   addEventListener('online', () => { offline.hidden = true; });
   addEventListener('offline', () => { offline.hidden = false; toast('You are offline: everything except the link downloader still works.'); });
@@ -199,7 +272,7 @@ function logo() {
 async function pickUpShared() {
   const q = new URLSearchParams(location.search);
   if (!q.has('shared')) return;
-  history.replaceState(null, '', location.pathname + location.hash);
+  history.replaceState(history.state, '', location.pathname + location.hash);
   try {
     const cache = await caches.open('morph-share');
     const keys = await cache.keys();
@@ -235,6 +308,17 @@ export function start() {
   settings.on(() => applyAppearance());
   matchMedia('(prefers-color-scheme: dark)').addEventListener('change', applyAppearance);
   buildShell();
-  addEventListener('hashchange', render);
+  bindTasks({ route: () => shown, go: (r) => app.go(r) });
+  // In-app links switch screens without adding Back history.
+  document.addEventListener('click', (e) => {
+    const a = e.target.closest?.('a[href^="#/"]');
+    if (!a || e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+    e.preventDefault();
+    app.go(a.getAttribute('href').slice(2));
+  });
+  addEventListener('hashchange', () => { if (location.hash.replace(/^#\/?/, '') !== shown) render(); });
+  addEventListener('popstate', onBack);
+  // Browsers only honour an app's Back handling after the user has touched the page.
+  addEventListener('pointerdown', installGuard, true); addEventListener('keydown', installGuard, true);
   render().then(() => { pickUpShared(); fileHandlers(); });
 }

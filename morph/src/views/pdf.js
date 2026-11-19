@@ -3,7 +3,8 @@ import { h, fmtBytes, baseName, clamp } from '../core/dom.js';
 import { icon } from '../core/icons.js';
 import { pageHeader, dropZone, resultActions, friendly, emptyState, orderTools, sortItems } from '../core/components.js';
 import { sortable, settle, reorderChildren } from '../core/sortable.js';
-import { segmented, slider, field, toast, progressBar, busy, feedback, modal, select } from '../core/ui.js';
+import { segmented, slider, field, toast, progressBar, feedback, modal, select } from '../core/ui.js';
+import { tasks } from '../core/tasks.js';
 import { kindOf, outName } from '../core/files.js';
 import { startRun, writeBlob } from '../core/save.js';
 import { history } from '../core/history.js';
@@ -35,14 +36,29 @@ const TOOLS = [
 
 export default function pdfView({ sub, files }) {
   const root = h('div.tool.pdf-tools');
-  let toolCtl = null;
+  // Each open tool stays alive while it works, so a merge can run while you use another tool.
+  const ctls = new Map(); // tool id -> controller
+  let toolCtl = null, gridEl = null;
   function show(id, incoming) {
-    toolCtl?.destroy?.();
-    toolCtl = null;
     const t = TOOLS.find((x) => x.id === id);
-    if (!t) { root.replaceChildren(grid()); return; }
-    toolCtl = toolPage(t, incoming);
-    root.replaceChildren(toolCtl.el);
+    // Tidy up tools that are idle and not on screen.
+    for (const [k, c] of ctls) if (k !== id && !c.busy) { c.destroy?.(); c.el.remove(); ctls.delete(k); }
+    if (!t) {
+      toolCtl = null;
+      gridEl ||= grid();
+      [...root.children].forEach((c) => { c.hidden = c !== gridEl; });
+      if (!gridEl.isConnected) root.append(gridEl);
+      return;
+    }
+    let c = ctls.get(id);
+    if (c && incoming?.length) {
+      if (c.busy) toast(`${t.title} is still working. The new files were added to its list.`);
+      else { c.destroy?.(); c.el.remove(); ctls.delete(id); c = null; }
+    }
+    if (!c) { c = toolPage(t, incoming); ctls.set(id, c); root.append(c.el); }
+    else if (incoming?.length) c.accept(incoming);
+    toolCtl = c;
+    [...root.children].forEach((x) => { x.hidden = x !== c.el; });
   }
   function grid() {
     const groups = [...new Set(TOOLS.map((t) => t.group))];
@@ -62,9 +78,10 @@ export default function pdfView({ sub, files }) {
   show(sub[0], files);
   return {
     el: root,
-    route: (s) => show(s[0], null),
+    route: (s, f) => show(s[0], f),
     accept: (f) => { if (toolCtl?.accept) return toolCtl.accept(f); return false; },
-    destroy: () => toolCtl?.destroy?.(),
+    destroy: () => ctls.forEach((c) => c.destroy?.()),
+    get busy() { return [...ctls.values()].some((c) => c.busy); },
   };
 }
 
@@ -78,7 +95,7 @@ function acceptFn(kind) {
 const ACCEPT_ATTR = { pdf: 'application/pdf,.pdf', image: 'image/*,.heic,.heif', 'pdf+image': 'application/pdf,.pdf,image/*,.heic', text: '.txt,.md,.csv,.json,.html,.xml,.log,text/*' };
 
 function toolPage(t, incoming) {
-  let files = [];
+  let files = [], working = false;
   const opts = {};
   const listHost = h('div.pdf-files');
   const rows = new Map(); // File -> row element (rows are reused so reordering doesn't rebuild them)
@@ -228,8 +245,9 @@ function toolPage(t, incoming) {
     if ((t.id === 'remove' || t.id === 'extract') && !pageGrid?.selected().length) { toast('Select at least one page', 'error'); return; }
     const run = startRun(multiOut ? 2 : 1, firstName, 'application/pdf');
     progress.hidden = false; progress.set(0); goBtn.disabled = true; resultHost.replaceChildren();
-    busy(true);
-    const onP = (p) => progress.set(p);
+    working = true;
+    const tk = tasks.start({ title: t.title, route: `pdf/${t.id}`, iconName: t.icon });
+    const onP = (p) => { progress.set(p); tk.progress(p, `${Math.round(p * 100)}%`); };
     const results = [];
     const save = async (name, blob) => results.push(await writeBlob(run, name, blob));
     try {
@@ -288,14 +306,20 @@ function toolPage(t, incoming) {
           h('span.muted', `${fmtBytes(outSize)}${t.id === 'compress' && diff > 0 ? ` (−${diff}%)` : ''}`)),
         h('div.rc-actions', resultActions(results))));
       feedback('done');
+      tk.done(results.length > 1 ? `${results.length} files ready` : results[0].name);
     } catch (e) {
       console.error(e);
       toast(friendly(e), 'error', 6000); feedback('error');
-    } finally { busy(false); goBtn.disabled = false; setTimeout(() => (progress.hidden = true), 600); }
+      tk.fail(friendly(e));
+    } finally { working = false; goBtn.disabled = false; setTimeout(() => (progress.hidden = true), 600); }
   }
 
   if (incoming?.length) add(incoming);
-  return { el, accept: (f) => { add(f); }, destroy: () => { pageGrid?.destroy(); canvasEd?.destroy(); } };
+  return {
+    el, accept: (f) => { add(f); }, destroy: () => { pageGrid?.destroy(); canvasEd?.destroy(); },
+    get busy() { return working; },
+    get dirty() { return files.length > 0; },
+  };
 }
 
 /** Page thumbnails. mode: 'select' | 'organize' */
