@@ -17,7 +17,7 @@ export default defineConfig({
       injectManifest: {
         // Everything the app needs is precached, so it works fully offline after the first visit.
         // The 32 MB ffmpeg core (only used for rare formats) is cached on first use / via Settings.
-        globPatterns: ['**/*.{js,mjs,css,html,svg,png,webmanifest}'],
+        globPatterns: ['**/*.{js,mjs,css,html,svg,png,webmanifest,woff2}'],
         globIgnores: ['ffmpeg/**'],
         maximumFileSizeToCacheInBytes: 12 * 1024 * 1024,
       },
@@ -25,8 +25,8 @@ export default defineConfig({
         name: 'Morph: Convert, Compress, Edit',
         short_name: 'Morph',
         description: 'Convert, compress and edit videos, photos, audio and PDFs. Works offline.',
-        theme_color: '#0b0d17',
-        background_color: '#0b0d17',
+        theme_color: '#0d0f14',
+        background_color: '#0d0f14',
         display: 'standalone',
         display_override: ['window-controls-overlay', 'standalone'],
         orientation: 'any',

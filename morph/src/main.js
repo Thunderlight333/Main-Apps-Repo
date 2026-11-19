@@ -1,3 +1,4 @@
+import '@fontsource-variable/inter/wght.css';
 import './styles/app.css';
 import { start } from './app.js';
 import { settings } from './core/settings.js';

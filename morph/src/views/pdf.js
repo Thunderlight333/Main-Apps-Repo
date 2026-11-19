@@ -1,12 +1,14 @@
 // PDF toolkit (ILovePDF-style), fully local.
 import { h, fmtBytes, baseName, clamp } from '../core/dom.js';
 import { icon } from '../core/icons.js';
-import { pageHeader, dropZone, resultActions, friendly, emptyState } from '../core/components.js';
+import { pageHeader, dropZone, resultActions, friendly, emptyState, orderTools, sortItems } from '../core/components.js';
+import { sortable, settle, reorderChildren } from '../core/sortable.js';
 import { segmented, slider, field, toast, progressBar, busy, feedback, modal, select } from '../core/ui.js';
 import { kindOf, outName } from '../core/files.js';
 import { startRun, writeBlob } from '../core/save.js';
 import { history } from '../core/history.js';
 import * as P from '../engines/pdf.js';
+import { thumbOf } from '../engines/image.js';
 import { app } from '../app.js';
 
 const TOOLS = [
@@ -79,6 +81,9 @@ function toolPage(t, incoming) {
   let files = [];
   const opts = {};
   const listHost = h('div.pdf-files');
+  const rows = new Map(); // File -> row element (rows are reused so reordering doesn't rebuild them)
+  const tools = t.reorder ? orderTools({ onSort: (kind) => { files = sortItems(files, kind); reorderChildren(listHost, files.map((f) => rows.get(f))); renumber(); }, hint: t.id === 'merge' ? 'Drag to set the page order' : 'Drag to set the page order' }) : null;
+  if (t.reorder) sortable(listHost, { items: '.pdf-file', handle: '.pf-grip', onSort: (from, to) => { const [x] = files.splice(from, 1); files.splice(to, 0, x); renumber(); } });
   const optsHost = h('div.opts');
   const pagesHost = h('div.pages-host');
   const resultHost = h('div.pdf-results');
@@ -91,7 +96,7 @@ function toolPage(t, incoming) {
   const dz = dropZone({ title: t.multi ? 'Add files' : 'Choose a file', compact: true, multiple: !!t.multi, accept: ACCEPT_ATTR[t.accept], onFiles: add });
   const landing = h('div.landing', dropZone({ title: `Drop ${t.accept === 'image' ? 'images' : t.accept === 'text' ? 'text files' : t.multi ? 'PDFs' : 'a PDF'} here`, multiple: !!t.multi, accept: ACCEPT_ATTR[t.accept], onFiles: add }));
   const work = h('div.tool-body.has-files',
-    h('div.tool-main', dz, listHost, pagesHost),
+    h('div.tool-main', dz, h('div.q-wrap', tools, listHost), pagesHost),
     h('div.tool-side', optsHost, h('div.card.go-card', progress, goBtn, resultHost)));
   work.hidden = true;
   const el = h('div', h('div.crumbs', back), pageHeader(t.title, t.desc, t.icon), landing, work);
@@ -105,19 +110,31 @@ function toolPage(t, incoming) {
     renderList(); renderOpts();
     if (t.pages || t.canvas) await loadPages();
   }
-  function renderList() {
-    listHost.replaceChildren(...files.map((f, i) => h('div.pdf-file', { draggable: !!t.reorder, 'data-i': i },
-      t.reorder ? h('span.drag', icon('drag', 16)) : null,
-      h('span.pf-ic', icon(kindOf(f) === 'pdf' ? 'pdf' : kindOf(f) === 'image' ? 'image' : 'file', 18)),
-      h('span.pf-name', f.name), h('span.muted.small', fmtBytes(f.size)),
-      t.reorder ? h('span.pf-move',
-        h('button.icon-btn.sm', { 'aria-label': 'Move up', disabled: i === 0, onclick: () => move(i, -1) }, h('span.rot-up', icon('chevron', 16))),
-        h('button.icon-btn.sm', { 'aria-label': 'Move down', disabled: i === files.length - 1, onclick: () => move(i, 1) }, h('span.rot-down', icon('chevron', 16)))) : null,
-      h('button.icon-btn.sm', { 'aria-label': 'Remove', onclick: () => { files.splice(i, 1); if (!files.length) reset(); else renderList(); } }, icon('x', 16)))));
-    if (t.reorder) enableDragSort(listHost, (from, to) => { const [x] = files.splice(from, 1); files.splice(to, 0, x); renderList(); });
+  function row(f) {
+    if (rows.has(f)) return rows.get(f);
+    const k = kindOf(f);
+    const thumb = h('span.pf-ic', icon(k === 'pdf' ? 'pdf' : k === 'image' ? 'image' : 'file', 18));
+    if (k === 'image') thumbOf(f, 96).then((url) => { if (url) thumb.replaceChildren(h('img', { src: url, alt: '', decoding: 'async' })); thumb.classList.add('has-img'); }).catch(() => {});
+    const el = settle(h('div.pdf-file',
+      t.reorder ? h('button.pf-grip', { type: 'button', 'aria-label': `Move ${f.name}. Use the arrow keys to change its position.`, title: 'Drag to reorder' }, icon('drag', 18)) : null,
+      t.reorder ? h('span.pf-num') : null,
+      thumb,
+      h('span.pf-name', { title: f.name }, f.name), h('span.pf-size', fmtBytes(f.size)),
+      h('button.icon-btn.sm', { 'aria-label': 'Remove', onclick: () => { files.splice(files.indexOf(f), 1); rows.delete(f); el.remove(); if (!files.length) reset(); else renumber(); } }, icon('x', 16))));
+    rows.set(f, el);
+    return el;
   }
-  function move(i, d) { const j = i + d; if (j < 0 || j >= files.length) return; [files[i], files[j]] = [files[j], files[i]]; renderList(); }
-  function reset() { files = []; landing.hidden = false; work.hidden = true; pagesHost.replaceChildren(); pageGrid?.destroy(); canvasEd?.destroy(); }
+  function renderList() {
+    listHost.replaceChildren(...files.map(row));
+    renumber();
+  }
+  function renumber() {
+    const w = String(files.length).length;
+    files.forEach((f, i) => { const n = rows.get(f)?.querySelector('.pf-num'); if (n) n.textContent = String(i + 1).padStart(w, '0'); });
+    listHost.classList.toggle('can-sort', !!t.reorder && files.length > 1);
+    tools?.update(files);
+  }
+  function reset() { files = []; rows.clear(); landing.hidden = false; work.hidden = true; pagesHost.replaceChildren(); pageGrid?.destroy(); canvasEd?.destroy(); }
 
   async function loadPages() {
     pageGrid?.destroy(); canvasEd?.destroy();
@@ -281,18 +298,6 @@ function toolPage(t, incoming) {
   return { el, accept: (f) => { add(f); }, destroy: () => { pageGrid?.destroy(); canvasEd?.destroy(); } };
 }
 
-/** Pointer-based drag sorting for a list of [data-i] children. */
-function enableDragSort(list, onMove) {
-  let from = null;
-  list.querySelectorAll('[data-i]').forEach((row) => {
-    row.ondragstart = (e) => { from = +row.dataset.i; row.classList.add('dragging'); e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', ''); };
-    row.ondragend = () => row.classList.remove('dragging');
-    row.ondragover = (e) => { e.preventDefault(); row.classList.add('over'); };
-    row.ondragleave = () => row.classList.remove('over');
-    row.ondrop = (e) => { e.preventDefault(); e.stopPropagation(); row.classList.remove('over'); if (from !== null && from !== +row.dataset.i) onMove(from, +row.dataset.i); from = null; };
-  });
-}
-
 /** Page thumbnails. mode: 'select' | 'organize' */
 function pageGridView(doc, mode, onChange) {
   const pages = Array.from({ length: doc.numPages }, (_, i) => ({ index: i, rotate: 0, selected: false }));
@@ -315,7 +320,7 @@ function pageGridView(doc, mode, onChange) {
   function render() {
     io.disconnect();
     el.replaceChildren(...pages.map((p, pos) => {
-      const card = h('div.pg', { 'data-page': p.index, 'data-i': pos, draggable: mode === 'organize', 'aria-pressed': p.selected, onclick: (e) => {
+      const card = h('div.pg', { 'data-page': p.index, tabIndex: mode === 'organize' ? 0 : undefined, 'aria-label': mode === 'organize' ? `Page ${p.index + 1}. Drag, or use the arrow keys, to move it.` : undefined, 'aria-pressed': p.selected, onclick: (e) => {
         if (mode !== 'select' || e.target.closest('button')) return;
         p.selected = !p.selected; card.setAttribute('aria-pressed', p.selected); onChange();
       } },
@@ -323,12 +328,15 @@ function pageGridView(doc, mode, onChange) {
       h('div.pg-foot', h('span', String(p.index + 1)),
         mode === 'organize' ? h('span.pg-tools',
           h('button.icon-btn.xs', { 'aria-label': 'Rotate page', onclick: () => { p.rotate = (p.rotate + 90) % 360; card.querySelector('.pg-img').style.transform = `rotate(${p.rotate}deg)`; } }, icon('rotate', 14)),
-          h('button.icon-btn.xs', { 'aria-label': 'Delete page', onclick: () => { pages.splice(pos, 1); render(); } }, icon('trash', 14))) : h('span.pg-check', icon('check', 14))));
+          h('button.icon-btn.xs', { 'aria-label': 'Delete page', onclick: () => { pages.splice(pages.indexOf(p), 1); render(); } }, icon('trash', 14))) : h('span.pg-check', icon('check', 14))));
       // keep already-rendered canvas
       return card;
     }));
     el.querySelectorAll('.pg').forEach((c) => { if (!thumbs.get(+c.dataset.page)) { thumbs.delete(+c.dataset.page); io.observe(c); } });
-    if (mode === 'organize') enableDragSort(el, (from, to) => { const [x] = pages.splice(from, 1); pages.splice(to, 0, x); render(); });
+  }
+  if (mode === 'organize') {
+    el.classList.add('can-sort');
+    sortable(el, { items: '.pg', onSort: (from, to) => { const [x] = pages.splice(from, 1); pages.splice(to, 0, x); } });
   }
   render();
   return {

@@ -51,6 +51,10 @@ const P = {
   search: '<circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/>',
   speed: '<path d="M12 12 8 8M20.5 16A9 9 0 1 0 3.5 16"/><path d="M12 21v-2"/>',
   gif: '<rect x="2" y="5" width="20" height="14" rx="2"/><path d="M10 10H8a1 1 0 0 0-1 1v2a1 1 0 0 0 1 1h2v-2M13 10v4M16 14v-4h2.5M16 12h2"/>',
+  sortAz: '<path d="M3 16l4 4 4-4M7 20V4"/><path d="M14 4h6l-6 7h6M14 20l3-7 3 7M15.2 17.5h3.6"/>',
+  clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+  swap: '<path d="M7 4v16M7 4 3 8M7 4l4 4M17 20V4M17 20l-4-4M17 20l4-4"/>',
+  listNum: '<path d="M10 6h11M10 12h11M10 18h11M4 6h1v4M4 10h2M6 18H4c0-1 2-2 2-3s-1-1.5-2-1"/>',
   drag: '<circle cx="9" cy="6" r="1"/><circle cx="15" cy="6" r="1"/><circle cx="9" cy="12" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="9" cy="18" r="1"/><circle cx="15" cy="18" r="1"/>',
 };
 export function icon(name, size = 20) {

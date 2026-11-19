@@ -33,7 +33,7 @@ export default function home() {
     h('section.hero',
       h('div.hero-text',
         h('span.eyebrow', icon('lock', 14), 'Private · Offline · No size limits'),
-        h('h1', greet, h('br'), h('span.grad', 'What are we making today?')),
+        h('h1', greet, h('span.h1-sub', 'What are we making today?')),
         h('p.muted', 'Drop anything: videos, photos, audio, PDFs or whole folders. Everything is processed on your device.')),
       h('div.hero-drop', dropZone({ title: 'Drop anything here', kinds: ['MP4', 'MOV', 'HEIC', 'JPG', 'PNG', 'PDF', 'MP3', '+40 more'], onFiles: (f) => app.openActions(f) }))),
     h('section',

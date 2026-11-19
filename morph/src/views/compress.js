@@ -1,7 +1,7 @@
 // Compressor with smart presets (recommended per file), target-size mode and a full custom mode.
 import { h, fmtBytes, fmtTime, extOf } from '../core/dom.js';
 import { icon } from '../core/icons.js';
-import { pageHeader, dropZone, createQueue, queueBar } from '../core/components.js';
+import { pageHeader, dropZone, createQueue, queueBar, dockBar } from '../core/components.js';
 import { segmented, slider, select, field } from '../core/ui.js';
 import { outName } from '../core/files.js';
 import { startRun } from '../core/save.js';
@@ -208,12 +208,12 @@ export default function compressView({ files }) {
       const p = imagePlan(it);
       const fmtOk = p.format === 'avif' && !(await canEncode('avif')) ? 'webp' : p.format;
       return processImage(it.file, { format: fmtOk, quality: p.quality, maxW: p.max || undefined, maxH: p.max || undefined, targetBytes: p.targetBytes },
-        { run, name: outName(it.file.name, fmtOk, 'compressed'), onProgress: ctx.onProgress });
+        { run, name: queue.nameFor(it, outName(it.file.name, fmtOk, 'compressed')), onProgress: ctx.onProgress });
     }
     it.media ||= await probe(it.file);
     if (it.kind === 'audio') {
       const f = st.a.format;
-      return processMedia(it.file, { container: f, audio: { bitrate: st.a.kbps * 1000 } }, { ...ctx, run, name: outName(it.file.name, f, 'compressed') });
+      return processMedia(it.file, { container: f, audio: { bitrate: st.a.kbps * 1000 } }, { ...ctx, run, name: queue.nameFor(it, outName(it.file.name, f, 'compressed')) });
     }
     const p = videoPlan(it.media);
     const container = st.v.preset === 'custom' ? st.v.container : p.codec === 'vp9' ? 'webm' : 'mp4';
@@ -221,7 +221,7 @@ export default function compressView({ files }) {
       container,
       video: { codec: p.codec, width: p.width, height: p.height, bitrate: p.vbr, fps: p.fps || undefined, forceTranscode: true },
       audio: p.abr ? { bitrate: p.abr } : { discard: true },
-    }, { ...ctx, run, name: outName(it.file.name, container, 'compressed'), duration: it.media.duration });
+    }, { ...ctx, run, name: queue.nameFor(it, outName(it.file.name, container, 'compressed')), duration: it.media.duration });
   }
 
   async function annotate(added) {
@@ -245,7 +245,8 @@ export default function compressView({ files }) {
   const el = h('div.tool',
     pageHeader('Compress', 'Shrink videos, photos and audio with smart presets. See the size before you start.', 'compress'),
     h('div.landing', dropZone({ title: 'Drop videos, photos or audio', accept: 'video/*,image/*,audio/*,.heic,.heif,.mkv,.mov', kinds: ['MP4', 'MOV', 'MKV', 'JPG', 'PNG', 'HEIC', 'MP3'], onFiles: addFiles })),
-    body, bar);
+    body);
+  dockBar(bar, body.querySelector('.tool-side'), el);
   if (files?.length) addFiles(files);
   return { el, accept: (f) => { addFiles(f); }, destroy: () => queue.cancel() };
 }

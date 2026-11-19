@@ -10,7 +10,8 @@ Vite + vanilla JS ES modules, with no UI framework. Entry is `src/main.js`, the 
 - **Settings must NOT contain format choices or compression values.** Those go on each tool screen after files are added. Settings are app preferences only (appearance, saving, processing, power, offline, downloader, privacy).
 - **Animations:** small and modern, transform/opacity only, never running off screen (containers clip with `overflow: hidden`). Respect the Animations setting (full/reduced/off) and Battery saver. Keep the app optimized: lazy-load heavy engines and throttle progress repaints.
 - **Copy/paste and drag-and-drop work anywhere** (global handlers in `app.js`), plus the share target (`sw.js`) and file handlers.
-- **Design:** professional, modern, eye-catching. Dark and light themes plus an accent color. Mobile has a bottom tab bar; desktop has a sidebar.
+- **Design:** professional, modern, eye-catching. Dark and light themes plus an accent color (default indigo). Calm neutrals, solid accents (no gradients or glows), Inter bundled locally via `@fontsource-variable/inter`. Mobile has a bottom tab bar; desktop has a sidebar, and the tool action bar docks at the bottom of the options panel (`dockBar`).
+- **File order matters:** every multi-file list can be reordered (drag handle with mouse/touch, arrow keys, Name/Date/Reverse sorts) via `core/sortable.js`. Outputs follow that order: Convert photos → one PDF, Merge, Images to PDF, Organize pages, and "Number names" (01-, 02-…) for folders/ZIPs.
 - **Phones:** Battery saver (auto on phones). A warning before big/4K jobs or on low battery (`core/power.js`).
 - Word/Excel/PowerPoint ↔ PDF are intentionally NOT included. The PDF screen says so.
 - Gemini's suggestion of Flutter/Tauri was considered; we kept the PWA (one codebase, no app-store ban). Tauri could wrap it later.

@@ -10,6 +10,7 @@ import { thumbOf } from '../engines/image.js';
 import { videoThumb } from '../engines/thumbs.js';
 import { app } from '../app.js';
 import { saver, effectiveParallel } from './power.js';
+import { sortable, settle, reorderChildren, SORTS } from './sortable.js';
 
 export function pageHeader(title, sub, iconName, extra) {
   return h('header.page-head',
@@ -41,11 +42,49 @@ export function dropZone({ accept = '', multiple = true, title = 'Drop files her
   h('div.dz-actions', h('button.btn.primary.sm', { type: 'button' }, icon('plus', 16), 'Choose files'), pasteBtn));
 }
 
-/** A list of files with status/progress. */
-export function createQueue({ accept = () => true, onChange, reorder = false } = {}) {
+/**
+ * Toolbar for lists whose order matters: count + total size, quick sorts, and (optionally) numbered names.
+ * onSort(kind) with kind in 'name' | 'date' | 'reverse'.
+ */
+export function orderTools({ onSort, numbered, hint = 'Drag to change the order' }) {
+  const summary = h('span.ot-sum');
+  const sortBtn = (kind, ic, label, title) => h('button.ot-btn', { type: 'button', title, 'aria-label': title, onclick: () => onSort(kind) }, icon(ic, 15), h('span', label));
+  const num = numbered ? h('button.ot-btn.ot-toggle', {
+    type: 'button', 'aria-pressed': numbered.get(), title: 'Start each file name with its position (01, 02, 03…) so folders and ZIPs keep this order',
+    onclick: () => { numbered.set(!numbered.get()); num.setAttribute('aria-pressed', numbered.get()); },
+  }, icon('listNum', 15), h('span', 'Number names')) : null;
+  const el = h('div.order-tools',
+    h('div.ot-left', summary, h('span.ot-hint', icon('drag', 14), hint)),
+    h('div.ot-right',
+      sortBtn('name', 'sortAz', 'Name', 'Sort by file name (A to Z)'),
+      sortBtn('date', 'clock', 'Date', 'Sort by date, oldest first'),
+      sortBtn('reverse', 'swap', 'Reverse', 'Reverse the current order'),
+      num));
+  el.update = (files) => {
+    el.hidden = files.length < 2;
+    summary.textContent = `${files.length} files · ${fmtBytes(files.reduce((a, f) => a + f.size, 0))}`;
+  };
+  return el;
+}
+
+/** Apply a quick sort to an array of items, using get(item) → File. Returns a new array. */
+export function sortItems(arr, kind, get = (x) => x) {
+  if (kind === 'reverse') return arr.slice().reverse();
+  const cmp = SORTS[kind];
+  return arr.slice().sort((a, b) => cmp(get(a), get(b)));
+}
+
+/** A list of files with status/progress. Files can be reordered by dragging; outputs follow that order. */
+export function createQueue({ accept = () => true, onChange } = {}) {
   const items = [];
   const list = h('div.queue');
   let running = null;
+  let numbered = false;
+  const tools = orderTools({
+    onSort: (kind) => api.sortBy(kind),
+    numbered: { get: () => numbered, set: (v) => { numbered = v; } },
+  });
+  const wrap = h('div.q-wrap', tools, list);
 
   function itemEl(it) {
     const pb = progressBar();
@@ -54,11 +93,23 @@ export function createQueue({ accept = () => true, onChange, reorder = false } =
     const status = h('div.q-status');
     const actions = h('div.q-actions');
     const remove = h('button.icon-btn.sm', { 'aria-label': 'Remove', onclick: () => api.remove(it.id) }, icon('x', 16));
-    const el = h('div.q-item', { 'data-id': it.id }, thumb, h('div.q-body', meta, status), actions, remove);
-    it.dom = { el, thumb, meta, status, actions, pb, remove };
+    const num = h('span.q-num');
+    const grip = h('button.q-grip', { type: 'button', 'aria-label': `Move ${it.file.name}. Use the arrow keys to change its position.`, title: 'Drag to reorder' }, icon('drag', 18));
+    const el = settle(h('div.q-item', { 'data-id': it.id }, grip, h('div.q-thumb-wrap', thumb, num), h('div.q-body', meta, status), actions, remove));
+    it.dom = { el, thumb, meta, status, actions, pb, remove, num };
     loadThumb(it);
     return el;
   }
+  function renumber() {
+    const w = String(items.length).length;
+    items.forEach((it, i) => { if (it.dom) it.dom.num.textContent = String(i + 1).padStart(w, '0'); });
+    list.classList.toggle('can-sort', items.length > 1 && !running);
+    tools.update(items.map((x) => x.file));
+  }
+  sortable(list, {
+    items: '.q-item', handle: '.q-grip', disabled: () => !!running || items.length < 2,
+    onSort: (from, to) => { const [x] = items.splice(from, 1); items.splice(to, 0, x); renumber(); },
+  });
   async function loadThumb(it) {
     let url = null;
     if (it.kind === 'image') url = await thumbOf(it.file, 120);
@@ -78,14 +129,17 @@ export function createQueue({ accept = () => true, onChange, reorder = false } =
       d.pb.indeterminate(it.progress < 0);
       d.pb.set(Math.max(0, it.progress), it.progress < 0 ? '…' : undefined);
       const msg = d.status.querySelector('.q-msg'); if (msg) msg.textContent = it.msg || '';
+    } else if (it.status === 'done' && !it.results.length) {
+      d.status.replaceChildren(h('div.q-done', h('span.badge.ok', icon('check', 14), 'Added'), it.note ? h('span.q-sizes', it.note) : null));
+      d.actions.replaceChildren();
     } else if (it.status === 'done') {
       const r = it.results;
       const total = r.reduce((a, x) => a + x.size, 0);
       const diff = it.file.size ? Math.round((1 - total / it.file.size) * 100) : 0;
       d.status.replaceChildren(h('div.q-done',
         h('span.badge.ok', icon('check', 14), r.length > 1 ? `${r.length} files` : 'Done'),
-        h('span.q-sizes', `${fmtBytes(it.file.size)} → ${fmtBytes(total)}`),
-        diff > 0 ? h('span.badge.save', `−${diff}%`) : diff < 0 ? h('span.badge.grow', `+${-diff}%`) : null));
+        it.note ? h('span.q-sizes', `${it.note} · ${fmtBytes(total)}`) : h('span.q-sizes', `${fmtBytes(it.file.size)} → ${fmtBytes(total)}`),
+        it.note ? null : diff > 0 ? h('span.badge.save', `−${diff}%`) : diff < 0 ? h('span.badge.grow', `+${-diff}%`) : null));
       d.actions.replaceChildren(...resultActions(r));
     } else if (it.status === 'error') {
       d.status.replaceChildren(h('small.q-err', it.error));
@@ -98,7 +152,20 @@ export function createQueue({ accept = () => true, onChange, reorder = false } =
     }
   }
   const api = {
-    el: list, items,
+    el: wrap, items,
+    /** Output name with an order prefix (01-, 02-…) when "Number names" is on. */
+    nameFor(it, name) {
+      if (!numbered || items.length < 2) return name;
+      const i = items.indexOf(it); if (i < 0) return name;
+      return `${String(i + 1).padStart(Math.max(2, String(items.length).length), '0')}-${name}`;
+    },
+    sortBy(kind) {
+      if (running || items.length < 2) return;
+      const sorted = sortItems(items, kind, (x) => x.file);
+      items.splice(0, items.length, ...sorted);
+      reorderChildren(list, items.map((x) => x.dom.el));
+      renumber();
+    },
     add(files) {
       const added = [];
       for (const file of files) {
@@ -107,6 +174,7 @@ export function createQueue({ accept = () => true, onChange, reorder = false } =
         items.push(it); list.append(itemEl(it)); paint(it); added.push(it);
       }
       if (files.length && !added.length) toast('Those files are not supported in this tool', 'error');
+      renumber();
       onChange?.(items, added);
       return added;
     },
@@ -114,9 +182,10 @@ export function createQueue({ accept = () => true, onChange, reorder = false } =
       const i = items.findIndex((x) => x.id === id); if (i < 0) return;
       const [it] = items.splice(i, 1);
       it.dom.el.classList.add('leaving'); setTimeout(() => it.dom.el.remove(), 180);
+      renumber();
       onChange?.(items, []);
     },
-    clear() { items.splice(0).forEach((it) => it.dom.el.remove()); onChange?.(items, []); },
+    clear() { items.splice(0).forEach((it) => it.dom.el.remove()); renumber(); onChange?.(items, []); },
     setInfo(it, info) { it.info = info; paint(it); },
     paint,
     get running() { return !!running; },
@@ -128,6 +197,7 @@ export function createQueue({ accept = () => true, onChange, reorder = false } =
       if (!todo.length) return;
       running = new AbortController();
       const signal = running.signal;
+      renumber();
       busy(true);
       const throttle = saver() ? 250 : 80;
       const t0 = performance.now();
@@ -143,9 +213,9 @@ export function createQueue({ accept = () => true, onChange, reorder = false } =
               onProgress: (p) => { it.progress = p; const now = performance.now(); if (now - last > throttle || p >= 1) { last = now; paint(it); } },
               onStatus: (m) => { it.msg = m; paint(it); },
             });
-            it.results = Array.isArray(res) ? res : [res];
+            it.results = res == null ? [] : Array.isArray(res) ? res : [res];
             it.status = 'done'; ok++;
-            history.add({ tool, name: it.file.name, inSize: it.file.size, outSize: it.results.reduce((a, r) => a + r.size, 0), kind: it.kind });
+            if (it.results.length) history.add({ tool, name: it.file.name, inSize: it.file.size, outSize: it.results.reduce((a, r) => a + r.size, 0), kind: it.kind });
             if (settings.get('autoSave')) it.results.forEach((r) => !r.savedToDisk && download(r));
           } catch (e) {
             console.error(e);
@@ -157,7 +227,7 @@ export function createQueue({ accept = () => true, onChange, reorder = false } =
       };
       const n = effectiveParallel();
       await Promise.all(Array.from({ length: n }, worker));
-      running = null; busy(false);
+      running = null; busy(false); renumber();
       const secs = ((performance.now() - t0) / 1000).toFixed(1);
       if (ok) { feedback('done'); notify('Morph: done', `${ok} file(s) finished in ${secs}s`); }
       if (fail) feedback('error');
@@ -211,4 +281,19 @@ export function queueBar(queue, { startLabel, onStart, extra }) {
 
 export function emptyState(iconName, title, text) {
   return h('div.empty', h('div.empty-ic', icon(iconName, 28)), h('strong', title), h('p.muted', text));
+}
+
+/** Desktop: dock the action bar at the bottom of the options panel. Phones: keep it as a sticky bar under the list. */
+export function dockBar(bar, side, tool) {
+  const mq = matchMedia('(min-width: 1101px)');
+  let seen = false;
+  const apply = () => {
+    if (seen && !tool.isConnected) { mq.removeEventListener('change', apply); return; }
+    const docked = mq.matches;
+    bar.classList.toggle('docked', docked);
+    (docked ? side : tool).append(bar);
+  };
+  apply();
+  requestAnimationFrame(() => { seen = true; });
+  mq.addEventListener('change', apply);
 }
