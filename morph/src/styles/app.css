@@ -764,3 +764,6 @@ select.input { appearance: none; background-image: linear-gradient(45deg, transp
   .lc-thumb { width: 72px; }
   .dli-thumb { width: 64px; }
 }
+.prose.steps { gap: 8px; }
+.prose.steps h4 { margin-top: 8px; }
+.prose ul { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 6px; }

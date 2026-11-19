@@ -8,6 +8,7 @@ import { startRun } from '../core/save.js';
 import { history } from '../core/history.js';
 import { getInfo, downloadLink, detectSite, checkServer, serverBase, previewUrl, usesCobalt } from '../engines/downloader.js';
 import { app } from '../app.js';
+import { serverSteps } from '../core/serverHelp.js';
 
 const SITES = ['YouTube', 'X / Twitter', 'Instagram', 'TikTok', 'Facebook', 'Reddit', 'Vimeo', 'Twitch', 'SoundCloud', '+1000 more'];
 
@@ -295,10 +296,7 @@ export default function downloaderView() {
       title: 'Why does the downloader need a server?', wide: true,
       body: h('div.prose',
         h('p', 'YouTube, TikTok, Instagram and X block web pages from downloading their videos directly, so no browser app can do it alone. Morph comes with a tiny free companion server that does it for you (using the open-source yt-dlp).'),
-        h('h4', 'On your PC (recommended)'),
-        h('ol', h('li', 'Install Node.js (nodejs.org) and optionally ffmpeg.'), h('li', 'In the Morph folder run: ', h('code', 'npm run serve')), h('li', 'Open ', h('code', 'http://localhost:8787'), '. The downloader connects automatically.')),
-        h('h4', 'On your phone'),
-        h('p', 'While the server runs on your PC, open the address it prints (e.g. ', h('code', 'http://192.168.1.20:8787'), ') on your phone on the same Wi-Fi. Or put that address in Settings → Downloader.'),
+        serverSteps(),
         h('h4', 'Alternative'),
         h('p', 'You can use any cobalt-compatible instance instead (Settings → Downloader → Backend).'),
         h('p.muted', 'Only download content you have the right to save. Everything else in Morph works 100% offline.')),

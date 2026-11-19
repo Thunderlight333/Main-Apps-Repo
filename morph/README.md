@@ -2,13 +2,19 @@
 
 Convert, compress and edit videos, photos, audio and PDFs on your own device. It works offline on phones and PCs, and nothing is uploaded.
 
-## Run it
+## Run it (the companion server, for the downloader and share links)
+
+1. **Download Morph:** on https://github.com/Thunderlight333/Main-Apps-Repo click the green **Code** button → **Download ZIP**, then unzip it (Windows: right-click → **Extract All**). Inside is a folder named `morph` (it contains `package.json`, `server` and `src`), e.g. `Downloads\Main-Apps-Repo-main\morph`. That is the Morph folder; you can move it anywhere.
+2. **Install Node.js** (LTS) from https://nodejs.org. Optional but recommended: ffmpeg (`winget install ffmpeg` on Windows, `brew install ffmpeg` on Mac).
+3. **Open a terminal in the `morph` folder:** Windows: open it in File Explorer, click the address bar, type `cmd`, press Enter. Mac: right-click the folder → **New Terminal at Folder**.
+4. Run:
 
 ```bash
-cd morph
-npm install
-npm run serve      # builds, then serves the app + downloader at http://localhost:8787
+npm install        # first time only
+npm run serve      # builds, then serves the app + downloader + share links at http://localhost:8787
 ```
+
+Leave that window open; Ctrl+C or closing it stops the server. Next time, just open the terminal in the folder and run `npm run serve`.
 
 The server also prints a LAN address, such as `http://192.168.1.20:8787`. Open it on your phone (same Wi-Fi), then use **Add to Home screen** or **Install app**. After the first visit everything except the downloader works with no internet.
 

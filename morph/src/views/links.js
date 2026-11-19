@@ -8,6 +8,7 @@ import { shareStatus, upload, myLinks, removeLink, linkStats, qrSvg, updateLink,
 import { videoThumb } from '../engines/thumbs.js';
 import { thumbOf } from '../engines/image.js';
 import { app } from '../app.js';
+import { serverSteps } from '../core/serverHelp.js';
 
 const TTL = [{ value: 1, label: '1 hour' }, { value: 24, label: '1 day' }, { value: 168, label: '7 days' }, { value: 0, label: 'Never' }];
 const PREF = 'morph.links.ttl';
@@ -104,7 +105,8 @@ export default function linksView({ files } = {}) {
       title: 'How share links work', wide: true,
       body: h('div.prose',
         h('p', 'Like Gyazo, Morph turns a video into a short link. Instead of a company server, the file is kept by the Morph server on your own computer, so nothing is uploaded to the internet.'),
-        h('ol', h('li', 'On your computer, in the Morph folder, run ', h('code', 'npm run serve'), '.'), h('li', 'Open Morph from the address it prints, or set it in Settings → Downloader → Server address.'), h('li', 'Add a video here. You get a link like ', h('code', 'http://192.168.1.20:8787/v/aB3dE9xKpQ'), ' and a QR code.')),
+        serverSteps(),
+        h('p', 'Then add a video here. You get a link like ', h('code', 'http://192.168.1.20:8787/v/aB3dE9xKpQ'), ' and a QR code.'),
         h('p', 'Anyone on the same Wi-Fi can open the link: it plays in the browser, with a Download button. No internet or account needed.'),
         h('p.muted', 'To share outside your Wi-Fi, the computer must be reachable from the internet (for example with a tunnel such as Cloudflare Tunnel). Links stop working while the computer is off.')),
       actions: [{ label: 'Got it', primary: true }],
