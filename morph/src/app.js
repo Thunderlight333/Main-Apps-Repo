@@ -153,22 +153,41 @@ function buildShell() {
     app.incoming(await filesFromDataTransfer(e.dataTransfer));
   });
 
-  // Global paste: files anywhere; links go to the downloader.
+  // Paste (Ctrl/⌘+V) only acts on screens that show a place to drop or paste:
+  // files go to that screen's drop area, links to the downloader's link box. Elsewhere (e.g. Settings) nothing happens.
   addEventListener('paste', async (e) => {
-    if (!settings.get('globalPaste')) return;
-    const t = e.target;
-    const typing = t.closest?.('input, textarea, [contenteditable]');
-    const files = await filesFromDataTransfer(e.clipboardData);
-    if (files.length) { e.preventDefault(); app.incoming(files); return; }
-    if (typing) return;
-    const text = e.clipboardData?.getData('text') || '';
-    const url = findUrl(text);
-    if (url && settings.get('detectLinks')) {
+    if (!settings.get('globalPaste') || !current) return;
+    if (document.querySelector('.modal-wrap')) return; // a dialog is open
+    const typing = e.target.closest?.('input, textarea, [contenteditable]');
+    const zone = visibleDropZone();
+    const hasFiles = [...(e.clipboardData?.items || [])].some((i) => i.kind === 'file');
+    if (hasFiles) {
+      if (!zone) return;
+      e.preventDefault();
+      const files = await filesFromDataTransfer(e.clipboardData);
+      if (!files.length) return;
+      if (current.view?.accept && current.view.accept(files) !== false) return;
+      if (current.id === 'home') app.openActions(files);
+      else toast("Those files can't be used on this screen", 'error');
+      return;
+    }
+    if (typing) return; // normal text paste into a box
+    const url = findUrl(e.clipboardData?.getData('text') || '');
+    if (!url || !settings.get('detectLinks')) return;
+    // The downloader's link box, or the Home drop area ("drop anything") which hands links to the downloader.
+    if (current.view?.acceptText) { e.preventDefault(); current.view.acceptText(url); return; }
+    if (current.id === 'home' && zone) {
+      e.preventDefault();
       if (!navigator.onLine) { toast('Link detected, but the downloader needs internet.'); return; }
-      if (current?.view?.acceptText?.(url)) return;
       app.go('download'); setTimeout(() => current?.view?.acceptText?.(url), 60);
     }
   });
+}
+
+/** The current screen's drop area, if one is actually showing. */
+function visibleDropZone() {
+  const view = document.getElementById('view');
+  return [...(view?.querySelectorAll('.dropzone') || [])].find((z) => !z.closest('[hidden]') && z.getClientRects().length > 0 && !z.classList.contains('disabled')) || null;
 }
 
 let logoN = 0;

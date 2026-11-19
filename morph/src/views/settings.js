@@ -112,8 +112,8 @@ export default function settingsView() {
         ]),
         section('smart', 'Smart features', 'star', [
           row('Show recommendations', 'Highlight the best preset for your file', toggle(S('showRecommendations'), set('showRecommendations'))),
-          row('Paste files anywhere', 'Ctrl/⌘+V adds copied files to the current tool', toggle(S('globalPaste'), set('globalPaste'))),
-          row('Detect pasted links', 'Pasting a video link opens the downloader', toggle(S('detectLinks'), set('detectLinks'))),
+          row('Paste to add files', 'Ctrl/⌘+V adds copied files on screens with a drop area', toggle(S('globalPaste'), set('globalPaste'))),
+          row('Detect pasted links', 'Pasting a video link on Home or in the Downloader starts a download', toggle(S('detectLinks'), set('detectLinks'))),
           row('Completion sound', null, toggle(S('sound'), set('sound'))),
           row('Vibration', 'On phones that support it', toggle(S('haptics'), set('haptics'))),
           row('Notify when done', 'If Morph is in the background', notifyToggle),
