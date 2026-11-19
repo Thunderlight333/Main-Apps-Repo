@@ -3,6 +3,16 @@
 import { settings } from '../core/settings.js';
 import { openSink } from '../core/save.js';
 
+/** Formats offered when the backend can't list them (cobalt). */
+export const FIXED_OPTIONS = [
+  { id: 'v1080', kind: 'video', label: '1080p', sub: 'HD', ext: 'mp4' }, { id: 'v720', kind: 'video', label: '720p', ext: 'mp4' },
+  { id: 'v480', kind: 'video', label: '480p', ext: 'mp4' }, { id: 'v360', kind: 'video', label: '360p', ext: 'mp4' },
+  { id: 'mp3-128', kind: 'audio', label: 'MP3', ext: 'mp3' },
+];
+export const usesCobalt = () => settings.get('dlBackend') === 'cobalt';
+/** A small copy of the video the app can play (companion server only). */
+export const previewUrl = (url) => (usesCobalt() ? null : `${serverBase()}/api/preview?url=${encodeURIComponent(url)}`);
+
 const trimSlash = (s) => (s || '').replace(/\/+$/, '');
 export function serverBase() {
   const s = trimSlash(settings.get('dlServer'));
@@ -32,7 +42,7 @@ export async function checkServer() {
 }
 
 export async function getInfo(url) {
-  if (settings.get('dlBackend') === 'cobalt') return { title: detectSite(url) + ' media', site: detectSite(url), cobalt: true };
+  if (usesCobalt()) return { title: detectSite(url) + ' media', site: detectSite(url), cobalt: true, options: FIXED_OPTIONS };
   const base = serverBase();
   const r = await fetch(`${base}/api/info?url=${encodeURIComponent(url)}`);
   const j = await r.json().catch(() => ({}));
@@ -40,9 +50,14 @@ export async function getInfo(url) {
   return { ...j, site: detectSite(url) };
 }
 
-/** Downloads straight to disk (OPFS / chosen folder) while reporting progress. */
-export async function downloadLink(url, { mode, quality, run, onProgress, onStatus, signal }) {
+/**
+ * Downloads straight to disk (OPFS / chosen folder) while reporting progress.
+ * option: an id from getInfo().options ('v720', 'mp3-192', 'm4a'…). trim: { start, end } in seconds.
+ * Returns the saved result plus `trimmed` (false when the server could not cut it, so the app trims).
+ */
+export async function downloadLink(url, { mode, quality, option, trim, run, onProgress, onStatus, signal }) {
   let fileUrl, name;
+  if (option) { if (/^v\d+$/.test(option)) { mode = 'video'; quality = option.slice(1); } else if (option === 'vbest') { mode = 'video'; quality = 4320; } else mode = 'audio'; }
   if (settings.get('dlBackend') === 'cobalt') {
     const base = trimSlash(settings.get('dlCobaltUrl'));
     if (!base) throw new Error('Set your cobalt instance URL in Settings → Downloader.');
@@ -56,7 +71,7 @@ export async function downloadLink(url, { mode, quality, run, onProgress, onStat
     else { fileUrl = j.url; name = j.filename || `download-${Date.now()}.mp4`; }
   } else {
     const base = serverBase();
-    fileUrl = `${base}/api/download?url=${encodeURIComponent(url)}&mode=${mode}&quality=${quality}`;
+    fileUrl = `${base}/api/download?url=${encodeURIComponent(url)}&mode=${mode}&quality=${quality}${option ? '&option=' + option : ''}${trim ? `&start=${trim.start}&end=${trim.end}` : ''}`;
   }
   onStatus?.(settings.get('dlBackend') === 'cobalt' ? 'Downloading…' : 'Server is fetching the video (this can take a moment)…');
   onProgress?.(-1);
@@ -67,6 +82,7 @@ export async function downloadLink(url, { mode, quality, run, onProgress, onStat
   if (m) name = decodeURIComponent(m[1]);
   name ||= `download-${Date.now()}.${mode === 'audio' ? 'mp3' : 'mp4'}`;
   const total = +res.headers.get('content-length') || 0;
+  const trimmed = res.headers.get('x-morph-trimmed') === '1';
   onStatus?.('Downloading…');
   const sink = await openSink(run, name);
   const reader = res.body.getReader();
@@ -79,7 +95,7 @@ export async function downloadLink(url, { mode, quality, run, onProgress, onStat
       if (writer) await writer.write({ type: 'write', data: value, position: got - value.length }); else parts.push(value);
       onProgress?.(total ? got / total : -1, got);
     }
-    if (writer) { await writer.close(); return await sink.finish(); }
-    return await sink.finish(new Blob(parts, { type: res.headers.get('content-type') || 'application/octet-stream' }));
+    if (writer) { await writer.close(); return Object.assign(await sink.finish(), { trimmed }); }
+    return Object.assign(await sink.finish(new Blob(parts, { type: res.headers.get('content-type') || 'application/octet-stream' })), { trimmed });
   } catch (e) { try { await writer?.abort(); } catch { /* */ } throw e; }
 }

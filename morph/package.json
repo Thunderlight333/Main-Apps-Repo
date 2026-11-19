@@ -23,7 +23,8 @@
     "heic-to": "^1.6.7",
     "jszip": "^3.10.2",
     "mediabunny": "^1.66.1",
-    "pdfjs-dist": "^6.5.438"
+    "pdfjs-dist": "^6.5.438",
+    "qrcode-generator": "^1.5.2"
   },
   "devDependencies": {
     "vite": "^8.3.8",

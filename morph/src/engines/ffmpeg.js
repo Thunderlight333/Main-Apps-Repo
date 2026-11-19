@@ -42,13 +42,15 @@ function terminate() { try { ff?.terminate(); } catch { /* */ } ff = null; loadi
  * Run ffmpeg on one input file. buildArgs(inPath, outPath) => string[]
  * Input is mounted with WORKERFS (read lazily, not copied into memory).
  */
-export async function runFFmpeg(file, outExt, buildArgs, { run, name, mime, onProgress, onStatus, signal, duration }) {
+export async function runFFmpeg(file, outExt, buildArgs, { run, name, mime, onProgress, onStatus, signal, duration, extraFiles = [] }) {
   if (!settings.get('ffmpegFallback')) throw new Error('This file needs the universal engine, which is turned off in Settings.');
   const inst = await loadFFmpeg(onStatus);
   onStatus?.('Processing with the universal engine…');
   const dir = '/in' + Math.random().toString(36).slice(2, 8);
   const safe = 'input.' + (file.name.split('.').pop() || 'bin').replace(/[^\w]/g, '');
   const inFile = new File([file], safe, { type: file.type });
+  // Extra inputs (e.g. a music track) are mounted next to the main file, still read in slices.
+  const extras = extraFiles.map((f, i) => new File([f], `extra${i}.` + (f.name.split('.').pop() || 'bin').replace(/[^\w]/g, ''), { type: f.type }));
   const outPath = `/out-${Date.now()}.${outExt}`;
   const onProg = ({ progress, time }) => {
     let p = progress;
@@ -63,8 +65,8 @@ export async function runFFmpeg(file, outExt, buildArgs, { run, name, mime, onPr
   signal?.addEventListener('abort', onAbort, { once: true });
   try {
     await inst.createDir(dir);
-    await inst.mount('WORKERFS', { files: [inFile] }, dir);
-    const code = await inst.exec(buildArgs(`${dir}/${safe}`, outPath));
+    await inst.mount('WORKERFS', { files: [inFile, ...extras] }, dir);
+    const code = await inst.exec(buildArgs(`${dir}/${safe}`, outPath, extras.map((f) => `${dir}/${f.name}`)));
     if (signal?.aborted) throw Object.assign(new Error('Cancelled'), { cancelled: true });
     if (code !== 0) { console.warn('[morph] ffmpeg log:\n' + logs.join('\n')); const all = logs.join('\n');
       if (/does not contain any stream|matches no streams/i.test(all)) throw new Error('This file has no track of the kind needed for that format (e.g. no audio for MP3).');
@@ -83,12 +85,16 @@ export async function runFFmpeg(file, outExt, buildArgs, { run, name, mime, onPr
 
 /** Build generic ffmpeg args from the same option object used by the fast engine. */
 export function argsFromOpts(opts) {
-  return (inp, out) => {
+  return (inp, out, extras = []) => {
     const a = [];
+    const v = opts.video || {}, au = opts.audio || {};
     if (opts.trim?.start) a.push('-ss', String(opts.trim.start));
     a.push('-i', inp);
+    const music = au.music && extras[0];
+    if (music) { if (au.music.loop) a.push('-stream_loop', '-1'); a.push('-i', music); }
+    const inLen = opts.trim?.end ? opts.trim.end - (opts.trim.start || 0) : opts.duration || 0;
+    const outLen = inLen ? inLen / (opts.speed || 1) : 0;
     if (opts.trim?.end) a.push('-t', String(opts.trim.end - (opts.trim.start || 0)));
-    const v = opts.video || {}, au = opts.audio || {};
     const c = opts.container;
     const vf = [];
     const af = [];
@@ -110,7 +116,25 @@ export function argsFromOpts(opts) {
     if (v.width || v.height) vf.push(`scale=${v.width ? Math.round(v.width / 2) * 2 : -2}:${v.height ? Math.round(v.height / 2) * 2 : -2}`);
     if (v.fps) a.push('-r', String(v.fps));
     const audioOnly = ['mp3', 'm4a', 'wav', 'ogg', 'flac', 'aac'].includes(c);
+    // Sound effects: volume, fades, and music (mixed in or replacing the original).
+    const fx = [];
+    if (au.volume != null && au.volume !== 1) fx.push(`volume=${au.volume.toFixed(2)}`);
+    const fades = [];
+    if (au.fadeIn) fades.push(`afade=t=in:st=0:d=${au.fadeIn}`);
+    if (au.fadeOut && outLen > au.fadeOut) fades.push(`afade=t=out:st=${(outLen - au.fadeOut).toFixed(2)}:d=${au.fadeOut}`);
+    let mapped = false;
+    if (music && !au.discard) {
+      const orig = [...af, ...fx].join(',') || 'anull';
+      const mv = `volume=${(au.music.volume ?? 1).toFixed(2)},apad`;
+      const graph = au.music.mode === 'mix'
+        ? `[0:a]${orig}[o];[1:a]${mv}[m];[o][m]amix=inputs=2:duration=first:dropout_transition=0:normalize=0${fades.length ? ',' + fades.join(',') : ''}[aout]`
+        : `[1:a]${mv}${fades.length ? ',' + fades.join(',') : ''}[aout]`;
+      a.push('-filter_complex', graph, '-map', '0:v?', '-map', '[aout]');
+      if (outLen) a.push('-t', outLen.toFixed(3));
+      mapped = true;
+    } else if (!au.discard) af.push(...fx, ...fades);
     if (audioOnly || v.discard) a.push('-vn');
+    else if (v.copy && !vf.length && !v.width && !v.height && !v.fps && !v.bitrate && !(opts.speed && opts.speed !== 1) && ['mp4', 'mov', 'mkv'].includes(c)) a.push('-c:v', 'copy');
     else {
       if (vf.length) a.push('-vf', vf.join(','));
       const codec = c === 'webm' ? 'libvpx' : 'libx264';
@@ -121,7 +145,7 @@ export function argsFromOpts(opts) {
     }
     if (au.discard && !audioOnly) a.push('-an');
     else {
-      if (af.length) a.push('-af', af.join(','));
+      if (af.length && !mapped) a.push('-af', af.join(','));
       const ac = { mp3: 'libmp3lame', wav: 'pcm_s16le', ogg: 'libvorbis', flac: 'flac', webm: 'libvorbis' }[c] || 'aac';
       a.push('-c:a', ac);
       if (au.bitrate && !['wav', 'flac'].includes(c)) a.push('-b:a', String(Math.round(au.bitrate)));

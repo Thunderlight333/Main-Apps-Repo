@@ -23,6 +23,10 @@ Vite + vanilla JS ES modules, with no UI framework. Entry is `src/main.js`, the 
 - `engines/image.js`: canvas encode (jpg/png/webp/avif), custom BMP/ICO encoders, HEIC through `heic-to`, and target-size search.
 - `engines/pdf.js`: `@cantoo/pdf-lib` (edit/encrypt) plus `pdfjs-dist` v6 (render/text). In v6, close documents with `closeView(doc)` (`doc.loadingTask.destroy()`); `doc.destroy` does not exist.
 - `engines/downloader.js` plus `server/server.js`: a zero-dependency Node companion server that runs yt-dlp (auto-downloaded) and serves `dist/`. Cobalt is also supported.
+  - `/api/info` returns `options` (SnapTube-style formats with sizes), `/api/preview` a ≤480p copy with range support, `/api/download?option=…&start=&end=` trims on the server (yt-dlp `--download-sections`, needs ffmpeg). Response header `X-Morph-Trimmed: 0` means the app must trim locally (done in `views/downloader.js`).
+  - A link shared from another app arrives via the share target as `?shared=1&text=…` and opens the quick format sheet (`acceptText(u, { sheet: true })`).
+- `engines/share.js` plus `views/links.js`: Gyazo-style share links. `POST /api/share` stores files in `server/shared/` (gitignored), `/v/<id>` is a server-rendered viewing page, `/v/<id>.<ext>` the file (ranges). Delete needs the per-link key kept in the app's localStorage. The service worker must not serve the app shell for `/v/` or `/api/`.
+- Editor sound: volume, fades and music (`opts.audio.music`) go through ffmpeg (`argsFromOpts`, extra input mounted by `runFFmpeg`). Video is stream-copied when nothing visual changed.
 
 ## Commands
 - `npm install`, then `npm run build` and `npm run serve` (port 8787), or `npm run dev`.

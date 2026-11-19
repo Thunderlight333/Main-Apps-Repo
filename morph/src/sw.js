@@ -8,7 +8,8 @@ self.addEventListener('activate', (e) => e.waitUntil(self.clients.claim()));
 cleanupOutdatedCaches();
 precacheAndRoute(self.__WB_MANIFEST);
 
-try { registerRoute(new NavigationRoute(createHandlerBoundToURL('index.html'))); } catch { /* dev */ }
+// Share-link pages (/v/…) and the server API are real server pages, not the app.
+try { registerRoute(new NavigationRoute(createHandlerBoundToURL('index.html'), { denylist: [/\/v\/[^/]+$/, /\/api\//] })); } catch { /* dev */ }
 
 // ffmpeg core: cached the first time it is requested, then served offline forever.
 registerRoute(({ url }) => url.pathname.includes('/ffmpeg/'), new CacheFirst({ cacheName: 'morph-ffmpeg' }));

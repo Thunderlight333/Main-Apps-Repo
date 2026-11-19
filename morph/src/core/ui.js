@@ -13,7 +13,7 @@ export function toast(msg, type = 'info', ms = 3200) {
 }
 
 // ---------- Modal ----------
-export function modal({ title, body, actions = [], wide = false, onClose }) {
+export function modal({ title, body, actions = [], wide = false, sheet = false, onClose }) {
   const host = document.getElementById('modals');
   let closed = false;
   const close = (v) => {
@@ -28,7 +28,7 @@ export function modal({ title, body, actions = [], wide = false, onClose }) {
     h('div.modal-body', body),
     actions.length ? h('div.modal-actions', actions.map((a) =>
       h('button.btn', { class: a.primary ? 'primary' : a.danger ? 'danger' : 'ghost', onclick: () => { const r = a.onClick?.(); if (r !== false) close(a.value); } }, a.label))) : null);
-  const wrap = h('div.modal-wrap', { onclick: (e) => e.target === wrap && close() }, box);
+  const wrap = h('div.modal-wrap', { class: sheet ? 'sheet' : '', onclick: (e) => e.target === wrap && close() }, box);
   host.append(wrap);
   document.addEventListener('keydown', esc);
   return { close, el: box };

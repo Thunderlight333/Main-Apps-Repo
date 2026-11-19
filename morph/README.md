@@ -20,9 +20,10 @@ For development use `npm run dev`. To host it as a static site, `npm run build` 
 |---|---|
 | Convert | Video → MP4/WebM/MOV/MKV/AVI/GIF/MP3/M4A/WAV/OGG/FLAC · Photos (incl. HEIC) → JPG/PNG/WebP/AVIF/BMP/ICO/GIF/PDF · Audio → MP3/M4A/WAV/OGG/FLAC/AAC · PDF → JPG/PNG/WebP/TXT · Text → PDF |
 | Compress | Recommended / High / Small / Tiny / **Target size** (Discord, WhatsApp, Email…) / Custom (quality %, resolution, fps, H.264/H.265/AV1/VP9, audio). Shows the estimated size before you start. |
-| Video editor | Trim (timeline with filmstrip), crop (aspect presets), rotate, mirror, resize, speed, mute, audio only, save frame, export |
+| Video editor | Trim (timeline with filmstrip), crop (aspect presets), rotate, mirror, resize, speed, save frame, export. **Sound:** remove sound, volume 0–200%, add background music or replace the sound, fade in/out, audio only |
 | PDF tools | Merge, split, organize, remove, extract, rotate, compress, repair, PDF↔images, PDF→text, text→PDF, sign, add text, page numbers, watermark, crop, protect (AES-256), unlock |
-| Downloader | YouTube, X, Instagram, TikTok and 1000+ sites through the companion server (yt-dlp) or a cobalt instance. **Online only.** |
+| Downloader | YouTube, X, Instagram, TikTok and 1000+ sites through the companion server (yt-dlp) or a cobalt instance. Preview the video, trim it before downloading, and pick a format from a list with sizes. Share a link from another app to Morph to get a quick quality picker. **Online only.** |
+| Share links | Gyazo-style: turn a video into a short link (`/v/aB3dE9xKpQ`) and QR code, served by the companion server. Opens on any device on the same Wi-Fi without internet. Expiry: 1 hour, 1 day, 7 days or never. |
 
 ## Design decisions
 

@@ -12,6 +12,7 @@ export const NAV = [
   { id: 'edit', label: 'Video editor', short: 'Edit', icon: 'scissors', mobile: true },
   { id: 'pdf', label: 'PDF tools', short: 'PDF', icon: 'pdf', mobile: true },
   { id: 'download', label: 'Downloader', icon: 'download' },
+  { id: 'links', label: 'Share links', icon: 'link' },
   { id: 'settings', label: 'Settings', icon: 'settings' },
 ];
 
@@ -22,6 +23,7 @@ const loaders = {
   edit: () => import('./views/editor.js'),
   pdf: () => import('./views/pdf.js'),
   download: () => import('./views/downloader.js'),
+  links: () => import('./views/links.js'),
   settings: () => import('./views/settings.js'),
 };
 
@@ -51,7 +53,8 @@ export const app = {
     if (k === 'video') {
       add('compress', 'compress', 'Compress video', 'Make it smaller, keep it sharp');
       add('convert', 'convert', 'Convert video', 'MP4, WebM, MOV, MKV, GIF, MP3…');
-      add('edit', 'scissors', 'Edit video', 'Trim, crop, rotate, speed, mute');
+      add('edit', 'scissors', 'Edit video', 'Trim, crop, rotate, speed, sound & music');
+      add('links', 'link', 'Get a share link', 'A short link and QR code, like Gyazo');
     } else if (k === 'image') {
       add('compress', 'compress', 'Compress photos', 'Smaller files, same look');
       add('convert', 'convert', 'Convert photos', 'JPG, PNG, WebP, AVIF, ICO, PDF…');
@@ -188,7 +191,13 @@ async function pickUpShared() {
       await cache.delete(k);
     }
     if (files.length) app.incoming(files);
-    else if (q.get('text') && findUrl(q.get('text'))) app.go('download'), setTimeout(() => current?.view?.acceptText?.(findUrl(q.get('text'))), 100);
+    else if (q.get('text') && findUrl(q.get('text'))) {
+      // A link shared from another app (YouTube, TikTok…): open the quick download sheet, SnapTube-style.
+      const u = findUrl(q.get('text'));
+      app.go('download');
+      const wait = (n) => (current?.id === 'download' && current.view?.acceptText ? current.view.acceptText(u, { sheet: true }) : n && setTimeout(() => wait(n - 1), 100));
+      wait(50);
+    }
   } catch { /* nothing shared */ }
 }
 

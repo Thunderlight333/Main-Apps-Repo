@@ -5,8 +5,10 @@ import { runFFmpeg, argsFromOpts } from './ffmpeg.js';
 const FFMPEG_ONLY = ['gif', 'avi'];
 export async function processMedia(file, opts, ctx) {
   const mime = MIME[opts.container] || 'application/octet-stream';
-  const viaFF = () => runFFmpeg(file, opts.container, argsFromOpts(opts), { ...ctx, mime });
-  if (FFMPEG_ONLY.includes(opts.container) || (opts.speed && opts.speed !== 1)) return viaFF();
+  const au = opts.audio || {};
+  const viaFF = () => runFFmpeg(file, opts.container, argsFromOpts(opts), { ...ctx, mime, extraFiles: au.music ? [au.music.file] : [] });
+  const soundFx = !au.discard && (au.music || (au.volume != null && au.volume !== 1) || au.fadeIn || au.fadeOut);
+  if (FFMPEG_ONLY.includes(opts.container) || (opts.speed && opts.speed !== 1) || soundFx) return viaFF();
   try {
     return await transcode(file, opts, ctx);
   } catch (e) {

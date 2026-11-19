@@ -11,6 +11,7 @@ const TOOLS = [
   { route: 'edit', icon: 'scissors', title: 'Video editor', desc: 'Trim, crop, rotate, speed, mute, export', tone: 'c' },
   { route: 'pdf', icon: 'pdf', title: 'PDF tools', desc: 'Merge, split, compress, sign, protect & more', tone: 'd' },
   { route: 'download', icon: 'download', title: 'Downloader', desc: 'Save videos from YouTube, X, TikTok, Instagram…', tone: 'e', online: true },
+  { route: 'links', icon: 'link', title: 'Share links', desc: 'Turn a video into a short link and QR code', tone: 'f' },
 ];
 const QUICK = [
   ['convert', 'Video → MP4'], ['convert', 'Video → MP3'], ['convert', 'HEIC → JPG'], ['convert', 'PNG → WebP'],

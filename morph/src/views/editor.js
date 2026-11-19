@@ -2,8 +2,8 @@
 import { h, fmtTime, fmtBytes, clamp } from '../core/dom.js';
 import { icon } from '../core/icons.js';
 import { pageHeader, dropZone, resultActions, friendly } from '../core/components.js';
-import { segmented, select, field, progressBar, toast, busy, feedback, notify } from '../core/ui.js';
-import { kindOf, outName } from '../core/files.js';
+import { segmented, select, field, progressBar, toast, busy, feedback, notify, slider, toggle } from '../core/ui.js';
+import { kindOf, outName, pickFiles } from '../core/files.js';
 import { startRun, download } from '../core/save.js';
 import { history } from '../core/history.js';
 import { probe, filmstrip, MIME } from '../engines/media.js';
@@ -33,7 +33,9 @@ export default function editorView({ files }) {
 
 function createEditor(file, onClose) {
   const url = URL.createObjectURL(file);
-  const S = { start: 0, end: 0, dur: 0, crop: null, aspect: 0, rotate: 0, flip: false, res: 0, speed: 1, audio: 'keep', format: 'mp4', quality: 'high', W: 0, H: 0 };
+  const S = { start: 0, end: 0, dur: 0, crop: null, aspect: 0, rotate: 0, flip: false, res: 0, speed: 1, audio: 'keep', format: 'mp4', quality: 'high', W: 0, H: 0,
+    volume: 1, fadeIn: 0, fadeOut: 0, music: null, musicVol: 0.6, musicLoop: true };
+  let musicEl = null, musicUrl = null;
   let info = null, destroyed = false, ac = null;
   const thumbUrls = [];
 
@@ -87,6 +89,22 @@ function createEditor(file, onClose) {
   function togglePlay() { if (video.paused) { if (video.currentTime >= S.end - 0.05 || video.currentTime < S.start) video.currentTime = S.start; video.play(); } else video.pause(); }
   video.addEventListener('play', () => playBtn.replaceChildren(icon('pause')));
   video.addEventListener('pause', () => playBtn.replaceChildren(icon('play')));
+  // Music preview follows the video: same play/pause/seek, starting at the trim start.
+  function syncMusic() {
+    if (!musicEl) return;
+    const d = musicEl.duration || 0;
+    let t = Math.max(0, (video.currentTime - S.start) * S.speed);
+    if (d && S.musicLoop) t %= d;
+    if (Math.abs(musicEl.currentTime - t) > 0.25) musicEl.currentTime = Math.min(t, d || t);
+    musicEl.volume = Math.min(1, S.musicVol);
+    if (!video.paused && (S.musicLoop || t < d)) musicEl.play().catch(() => {}); else musicEl.pause();
+  }
+  function applyPreviewSound() {
+    video.muted = S.audio === 'mute';
+    video.volume = Math.min(1, S.volume);
+    syncMusic();
+  }
+  ['play', 'pause', 'seeked', 'ratechange'].forEach((ev) => video.addEventListener(ev, syncMusic));
   video.addEventListener('error', () => { noPreview.hidden = false; vbox.hidden = true; });
   let rafId = 0;
   const tick = () => {
@@ -248,13 +266,48 @@ function createEditor(file, onClose) {
       h('p.hint', `Rotation: ${S.rotate}°${S.flip ? ' · mirrored' : ''}`)];
     else if (tab === 'resize') c = [field('Output resolution', segmented([{ value: 0, label: 'Original' }, { value: 1080, label: '1080p' }, { value: 720, label: '720p' }, { value: 480, label: '480p' }, { value: 360, label: '360p' }], S.res, (v) => { S.res = v; paintSummary(); }, { small: true }), 'Scales the shorter side; aspect ratio is kept.')];
     else if (tab === 'speed') c = [field('Playback speed', segmented([0.25, 0.5, 0.75, 1, 1.25, 1.5, 2, 4].map((v) => ({ value: v, label: `${v}×` })), S.speed, (v) => { S.speed = v; video.playbackRate = v; paintTrim(); }, { small: true }), 'Speed changes use the universal engine (slower).')];
-    else if (tab === 'audio') c = [field('Sound', segmented([{ value: 'keep', label: 'Keep' }, { value: 'mute', label: 'Mute' }, { value: 'extract', label: 'Audio only' }], S.audio, (v) => { S.audio = v; video.muted = v === 'mute'; if (v === 'extract') S.format = 'mp3'; else if (['mp3', 'm4a', 'wav'].includes(S.format)) S.format = 'mp4'; renderPanel(); paintSummary(); }, { small: true }))];
+    else if (tab === 'audio') c = audioPanel();
     else {
       const fmts = S.audio === 'extract' ? ['mp3', 'm4a', 'wav'] : ['mp4', 'webm', 'mov', 'mkv', 'gif'];
       c = [field('Format', segmented(fmts.map((f) => ({ value: f, label: f.toUpperCase() })), S.format, (v) => { S.format = v; paintSummary(); }, { small: true })),
         S.audio !== 'extract' ? field('Quality', segmented([{ value: 'very-high', label: 'Best' }, { value: 'high', label: 'High' }, { value: 'medium', label: 'Medium' }, { value: 'low', label: 'Small' }], S.quality, (v) => { S.quality = v; }, { small: true })) : null];
     }
     panelHost.replaceChildren(...c.filter(Boolean));
+  }
+  function audioPanel() {
+    const silent = info && info.hasAudio === false;
+    const pct = (v) => Math.round(v * 100) + '%';
+    const rows = [];
+    if (silent) rows.push(h('div.note', icon('info', 16), h('span', 'This video has no sound. Add a music file below to give it one.')));
+    else rows.push(field('Original sound', segmented([{ value: 'keep', label: 'Keep' }, { value: 'mute', label: 'Remove sound' }, { value: 'extract', label: 'Audio only' }], S.audio, (v) => {
+      S.audio = v;
+      if (v === 'extract') S.format = 'mp3'; else if (['mp3', 'm4a', 'wav'].includes(S.format)) S.format = 'mp4';
+      applyPreviewSound(); renderPanel(); paintSummary();
+    }, { small: true }), S.audio === 'mute' ? (S.music ? 'The music replaces the original sound.' : 'The video is saved with no sound track at all.') : S.audio === 'extract' ? 'Saves just the sound as an MP3, M4A or WAV file.' : null));
+    if (!silent && S.audio !== 'mute') rows.push(field('Volume', slider({ min: 0, max: 2, step: 0.05, value: S.volume, format: pct, onInput: (v) => { S.volume = v; applyPreviewSound(); paintSummary(); } }),
+      'Above 100% makes it louder. The preview plays at most 100%.'));
+    // Music: added under the original sound, or replacing it.
+    if (!S.music) rows.push(field(silent ? 'Add sound' : 'Background music', h('button.btn.ghost', { onclick: pickMusic }, icon('audio', 18), 'Choose a music file'),
+      'MP3, M4A, WAV… or a video, whose sound is used.'));
+    else rows.push(field(silent || S.audio === 'mute' ? 'Music (replaces the sound)' : 'Background music',
+      h('div.music-row', icon('audio', 18), h('span.music-name', { title: S.music.name }, S.music.name),
+        h('button.icon-btn.sm', { 'aria-label': 'Remove music', onclick: () => { S.music = null; musicEl?.pause(); musicEl = null; if (musicUrl) URL.revokeObjectURL(musicUrl); renderPanel(); paintSummary(); } }, icon('x', 16)))),
+      field('Music volume', slider({ min: 0, max: 1.5, step: 0.05, value: S.musicVol, format: pct, onInput: (v) => { S.musicVol = v; syncMusic(); } })),
+      h('label.check', toggle(S.musicLoop, (v) => { S.musicLoop = v; syncMusic(); }, 'Loop music'), 'Repeat the music if it is shorter than the video'));
+    rows.push(h('div.fade-rows',
+      field('Fade in', segmented([0, 1, 2, 3].map((v) => ({ value: v, label: v ? `${v}s` : 'Off' })), S.fadeIn, (v) => { S.fadeIn = v; paintSummary(); }, { small: true })),
+      field('Fade out', segmented([0, 1, 2, 3].map((v) => ({ value: v, label: v ? `${v}s` : 'Off' })), S.fadeOut, (v) => { S.fadeOut = v; paintSummary(); }, { small: true }))));
+    return rows;
+  }
+  async function pickMusic() {
+    const [f] = await pickFiles({ accept: 'audio/*,video/*,.mp3,.m4a,.wav,.ogg,.flac,.aac,.opus', multiple: false });
+    if (!f) return;
+    S.music = f;
+    if (musicUrl) URL.revokeObjectURL(musicUrl);
+    musicUrl = URL.createObjectURL(f);
+    musicEl = new Audio(musicUrl); musicEl.preload = 'auto'; musicEl.loop = false;
+    musicEl.addEventListener('ended', () => { if (S.musicLoop && !video.paused) { musicEl.currentTime = 0; musicEl.play().catch(() => {}); } });
+    applyPreviewSound(); renderPanel(); paintSummary();
   }
   function paintSummary() {
     const bits = [];
@@ -264,7 +317,10 @@ function createEditor(file, onClose) {
     if (S.flip) bits.push('Mirror');
     if (S.res) bits.push(`${S.res}p`);
     if (S.speed !== 1) bits.push(`${S.speed}×`);
-    if (S.audio !== 'keep') bits.push(S.audio === 'mute' ? 'Muted' : 'Audio only');
+    if (S.audio !== 'keep') bits.push(S.audio === 'mute' ? (S.music ? 'Sound replaced' : 'No sound') : 'Audio only');
+    if (S.audio !== 'mute' && S.volume !== 1) bits.push(`Volume ${Math.round(S.volume * 100)}%`);
+    if (S.music) bits.push('+ Music');
+    if (S.fadeIn || S.fadeOut) bits.push('Fades');
     bits.push(S.format.toUpperCase());
     summary.replaceChildren(...bits.map((b) => h('span.chip.xs', b)));
     exportBtn.replaceChildren(icon('bolt', 18), S.audio === 'extract' ? 'Export audio' : S.format === 'gif' ? 'Export GIF' : 'Export video');
@@ -292,8 +348,10 @@ function createEditor(file, onClose) {
         container, speed: S.speed,
         trim: trimmed ? { start: S.start, end: S.end } : undefined,
         video: container === 'gif' ? { width: outW || Math.min(480, S.W), fps: 12, crop, rotate: S.rotate, flip: S.flip }
-          : { crop: crop || undefined, rotate: S.rotate || undefined, flip: S.flip || undefined, width: outW, quality: S.quality, discard: S.audio === 'extract', forceTranscode: !!(crop || S.rotate || S.flip || outW) || undefined },
-        audio: S.audio === 'mute' ? { discard: true } : {},
+          : { crop: crop || undefined, rotate: S.rotate || undefined, flip: S.flip || undefined, width: outW, quality: S.quality, discard: S.audio === 'extract', forceTranscode: !!(crop || S.rotate || S.flip || outW) || undefined,
+            copy: !trimmed && !crop && !S.rotate && !S.flip && !outW },
+        duration: S.dur,
+        audio: audioOpts(),
       };
       const res = await processMedia(file, opts, {
         run, name, signal: ac.signal, duration: (S.end - S.start) / S.speed,
@@ -310,6 +368,14 @@ function createEditor(file, onClose) {
       busy(false); ac = null; progress.hidden = true;
       exportBtn.classList.remove('danger'); paintSummary();
     }
+  }
+
+  function audioOpts() {
+    const silent = info && info.hasAudio === false;
+    const music = S.music ? { file: S.music, volume: S.musicVol, loop: S.musicLoop, mode: S.audio === 'mute' || silent ? 'replace' : 'mix' } : null;
+    if (S.audio === 'mute' && !music) return { discard: true };
+    if (silent && !music) return {};
+    return { volume: S.audio === 'mute' ? undefined : S.volume, fadeIn: S.fadeIn || undefined, fadeOut: S.fadeOut || undefined, music };
   }
 
   async function grabFrame() {
@@ -338,6 +404,7 @@ function createEditor(file, onClose) {
       if (!S.dur || !isFinite(S.dur)) { S.dur = info.duration; S.end = info.duration; }
       if (!S.W && info.width) { S.W = info.width; S.H = info.height; layout(); }
       paintTrim();
+      if (tab === 'audio') renderPanel();
     } catch { /* video element may still work */ }
     const n = Math.max(6, Math.min(16, Math.round(timeline.clientWidth / 64)));
     const cells = Array.from({ length: n }, () => h('div.cell'));
@@ -359,6 +426,7 @@ function createEditor(file, onClose) {
       destroyed = true; ac?.abort(); ro.disconnect(); cancelAnimationFrame(rafId);
       removeEventListener('keydown', onKey);
       video.pause(); video.removeAttribute('src'); video.load();
+      musicEl?.pause(); if (musicUrl) URL.revokeObjectURL(musicUrl);
       URL.revokeObjectURL(url); thumbUrls.forEach((u) => u.startsWith('blob:') && URL.revokeObjectURL(u));
       el.remove();
     },
