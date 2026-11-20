@@ -41,6 +41,9 @@ Vite + vanilla JS ES modules, with no UI framework. Entry is `src/main.js`, the 
 - **Recipes** `views/recipes.js` (route `recipes/<id>`): steps = File[] → File[] (`runStep`). Built-ins + your own (localStorage `morph.recipes.v1`), drag to reorder, "Save as my recipe". The "Make ready for…" step uses `fitFile()` exported from `views/ready.js`.
 - **First-time guide** `core/onboard.js`: 3 slides on Home only, once (`morph.onboarded`). Back closes it. Tests must set `localStorage['morph.onboarded']='1'` (addInitScript) or the guide covers Home.
 
+## Section colours
+- `app.js` sets `<html data-section="<route id>">`. CSS maps it to `--sec` (Home/Convert/Recipes/Settings = accent, Compress & Ready = green, Editor = amber, PDF & Scan = red, Downloader = blue, Photo & Links = teal) with `--sec-ink`/`--sec-soft`. The active tab, active side link, page-header icon and tool-card icons use these.
+
 ## Updates
 - `src/main.js` checks for a new service worker on resume and every 30 min, then reloads (after running tasks finish). If a lazily loaded screen file fails while online (an old open copy after an update), `app.js` reloads once into the new version. When publishing, keep the previous `assets/` files on `morph-app` so old open copies can still load them.
 

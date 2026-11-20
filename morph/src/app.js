@@ -119,6 +119,7 @@ async function render() {
   const token = ++navToken;
   const files = app.takePending();
   document.querySelectorAll('[data-nav]').forEach((a) => a.classList.toggle('active', a.dataset.nav === id));
+  document.documentElement.dataset.section = id; // the active tab and screen icons take this section's colour
   const host = $('#view');
   let entry = alive.get(id) || (current?.id === id ? current : null);
   // Files sent to a tool that is idle: start it fresh with just those files (a busy tool gets them added).
