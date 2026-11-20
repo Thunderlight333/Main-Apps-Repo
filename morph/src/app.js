@@ -10,6 +10,7 @@ export const NAV = [
   { id: 'home', label: 'Home', icon: 'home', mobile: true },
   { id: 'convert', label: 'Convert', icon: 'convert', mobile: true },
   { id: 'compress', label: 'Compress', icon: 'compress', mobile: true },
+  { id: 'ready', label: 'Ready for…', icon: 'target' },
   { id: 'edit', label: 'Video editor', short: 'Edit', icon: 'scissors', mobile: true },
   { id: 'pdf', label: 'PDF tools', short: 'PDF', icon: 'pdf', mobile: true },
   { id: 'download', label: 'Downloader', icon: 'download' },
@@ -21,6 +22,7 @@ const loaders = {
   home: () => import('./views/home.js'),
   convert: () => import('./views/convert.js'),
   compress: () => import('./views/compress.js'),
+  ready: () => import('./views/ready.js'),
   edit: () => import('./views/editor.js'),
   pdf: () => import('./views/pdf.js'),
   download: () => import('./views/downloader.js'),
@@ -33,7 +35,7 @@ let pending = null; // files handed to the next view
 let navToken = 0;
 let shown = ''; // route on screen, e.g. "convert" or "pdf/merge"
 // Tool screens stay alive in the background (hidden), so their jobs keep running while you use other tools.
-const KEEP = new Set(['convert', 'compress', 'edit', 'pdf', 'download', 'links']);
+const KEEP = new Set(['ready', 'convert', 'compress', 'edit', 'pdf', 'download', 'links']);
 const alive = new Map(); // id -> { id, view, page, scroll }
 
 export const app = {
@@ -59,6 +61,9 @@ export const app = {
     const k = kinds.size === 1 ? [...kinds][0] : 'mixed';
     const opts = [];
     const add = (route, iconName, title, desc, sub) => opts.push({ route, iconName, title, desc, sub });
+    if (['video', 'image', 'audio', 'pdf'].includes(k) || (k === 'mixed' && [...kinds].every((x) => ['video', 'image', 'audio', 'pdf'].includes(x)))) {
+      add('ready', 'target', 'Make it ready for…', 'WhatsApp, Discord, Email, Instagram, TikTok, or your own');
+    }
     if (k === 'video') {
       add('compress', 'compress', 'Compress video', 'Make it smaller, keep it sharp');
       add('convert', 'convert', 'Convert video', 'MP4, WebM, MOV, MKV, GIF, MP3…');

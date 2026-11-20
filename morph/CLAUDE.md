@@ -22,6 +22,14 @@ Vite + vanilla JS ES modules, with no UI framework. Entry is `src/main.js`, the 
 - **ffmpeg.wasm** has one instance, so `runFFmpeg` queues jobs ("Waiting for the universal engine…").
 - **Back button:** switching screens uses `history.replaceState` (in-app `#/` links are intercepted), so history never piles up. After the first touch the app keeps a guard entry: Back closes a dialog, then goes up (PDF tool → PDF tools → Home), then on Home shows "Press back again to exit" (or a warning with a Stay button when tasks are running); a second Back leaves. Browsers only honour this after the user has touched the page.
 
+## Ready for…, Recent results, "On this device" badge (Phase 1, step 1)
+- `views/ready.js` (route `ready`, kept alive): **Presets** (WhatsApp, Discord 10 MB, Email 25 MB total, Reels & Stories 9:16, Instagram post 4:5, TikTok, X, School/work upload with a chosen limit) plus **Your presets**, and **Custom** (size limit per file or total, shape, video quality/fps/format/sound, photo format/max px, audio, PDF level) with "Save as my preset" / edit / delete. Stored in localStorage `morph.ready.v1`.
+  - A preset is a "spec" (`limitMB`, `total`, `aspect`, `video`, `image`, `audio`, `pdf`). `videoPlan()` centre-crops to the aspect, picks resolution/bitrate to fit the limit, and retries once smaller if the encoder overshoots. Images use `convertImage` (target-size search). PDFs try lossless → light → recommended → extreme until they fit. Over-limit results get `it.warn` (shown under the item).
+  - `#/ready/<presetId>` preselects a preset (Home "Popular" chips) and then switches the address back to `#/ready`. The "files ready" sheet has "Make it ready for…" first.
+- `core/recent.js`: copies of finished results in IndexedDB (`morph-recent`) with a small thumbnail. Hooked in `createQueue.run`, PDF tools, editor and downloader (`local: false`). Settings → Privacy: on/off and space (250 MB / 1 GB / 3 GB). Files bigger than half the space are listed but not kept. Home shows "Recent results" (Save, Share, Use in another tool).
+- `localBadge()` / `showLocalInfo()` in `core/components.js`: an "On this device" badge on every local result (queue tools, PDF, editor). Not on the downloader or share links.
+- `h()` now writes `aria-*` booleans as "true"/"false" (before, selected presets/buttons never showed as selected).
+
 ## Updates
 - `src/main.js` checks for a new service worker on resume and every 30 min, then reloads (after running tasks finish). If a lazily loaded screen file fails while online (an old open copy after an update), `app.js` reloads once into the new version. When publishing, keep the previous `assets/` files on `morph-app` so old open copies can still load them.
 

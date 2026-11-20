@@ -42,6 +42,8 @@ export const DEFAULTS = {
   dlMode: 'video',          // video | audio
   // History
   history: true,
+  recentKeep: true,         // keep copies of recent results on this device
+  recentSpace: 1024,        // MB for recent results
 };
 
 const listeners = new Set();

@@ -4,8 +4,13 @@ import { dropZone } from '../core/components.js';
 import { history } from '../core/history.js';
 import { app } from '../app.js';
 import { KIND_ICON } from '../core/files.js';
+import { recent } from '../core/recent.js';
+import { download, shareResult } from '../core/save.js';
+import { toast } from '../core/ui.js';
+import { showLocalInfo } from '../core/components.js';
 
 const TOOLS = [
+  { route: 'ready', icon: 'target', title: 'Ready for…', desc: 'One tap for WhatsApp, Discord, Email, Instagram, TikTok', tone: 'b' },
   { route: 'convert', icon: 'convert', title: 'Convert', desc: 'Any photo, video, audio or PDF to the format you need', tone: 'a' },
   { route: 'compress', icon: 'compress', title: 'Compress', desc: 'Smart presets to shrink videos and photos', tone: 'b' },
   { route: 'edit', icon: 'scissors', title: 'Video editor', desc: 'Trim, crop, rotate, speed, mute, export', tone: 'c' },
@@ -14,6 +19,7 @@ const TOOLS = [
   { route: 'links', icon: 'link', title: 'Share links', desc: 'Turn a video into a short link and QR code', tone: 'f' },
 ];
 const QUICK = [
+  ['ready/discord', 'Discord (10 MB)'], ['ready/whatsapp', 'For WhatsApp'], ['ready/email', 'For Email'], ['ready/reels', 'Reels 9:16'],
   ['convert', 'Video → MP4'], ['convert', 'Video → MP3'], ['convert', 'HEIC → JPG'], ['convert', 'PNG → WebP'],
   ['pdf/merge', 'Merge PDF'], ['pdf/img2pdf', 'JPG → PDF'], ['pdf/pdf2img', 'PDF → JPG'], ['pdf/sign', 'Sign PDF'], ['convert', 'Video → GIF'],
 ];
@@ -28,7 +34,9 @@ export default function home() {
   const hr = new Date().getHours();
   const greet = hr < 5 ? 'Up late?' : hr < 12 ? 'Good morning' : hr < 18 ? 'Good afternoon' : 'Good evening';
   const st = history.stats();
-  const recent = history.list().slice(0, 6);
+  const urls = [];
+  let paintRecent = () => {};
+  const off = recent.on(() => paintRecent());
 
   const el = h('div.home',
     h('section.hero',
@@ -50,13 +58,46 @@ export default function home() {
         h('div.stat-row',
           h('div.stat', h('strong', String(st.jobs)), h('small', 'files processed')),
           h('div.stat', h('strong', fmtBytes(st.saved)), h('small', 'space saved')))),
-      h('div.card.recent',
-        h('div.sec-head', h('h3', 'Recent activity'), recent.length ? h('button.link-btn', { onclick: () => { history.clear(); app.go('home'); } }, 'Clear') : null),
-        recent.length ? h('ul.recent-list', recent.map((r) => h('li',
-          h('span.r-ic', icon(KIND_ICON[r.kind] || 'file', 16)),
-          h('span.r-name', r.name), h('span.r-tool', r.tool),
-          h('span.r-meta', r.outSize < r.inSize ? `−${Math.round((1 - r.outSize / r.inSize) * 100)}%` : fmtBytes(r.outSize)),
-          h('span.r-time', ago(r.at)))))
-          : h('p.muted.small', 'Nothing yet. Your finished jobs will show up here (names only, never the files).'))));
-  return { el };
+      recentCard()));
+  return { el, destroy: () => { off(); urls.forEach((u) => URL.revokeObjectURL(u)); } };
+
+  // ---- Recent results: copies kept on this device, ready to share, save again, or use in another tool ----
+  function recentCard() {
+    const list = h('div.rr-list', h('p.muted.small', 'Loading…'));
+    const clearBtn = h('button.link-btn', { hidden: true, onclick: async () => { await recent.clear(); history.clear(); toast('Recent results cleared', 'success'); } }, 'Clear');
+    const card = h('div.card.recent',
+      h('div.sec-head', h('h3', 'Recent results'), clearBtn),
+      list);
+    paintRecent = async () => {
+      const items = (await recent.list()).slice(0, 8);
+      urls.forEach((u) => URL.revokeObjectURL(u)); urls.length = 0;
+      clearBtn.hidden = !items.length && !history.list().length;
+      if (!items.length) {
+        const old = history.list().slice(0, 5);
+        list.replaceChildren(old.length
+          ? h('ul.recent-list', old.map((r) => h('li',
+            h('span.r-ic', icon(KIND_ICON[r.kind] || 'file', 16)), h('span.r-name', r.name), h('span.r-tool', r.tool),
+            h('span.r-meta', r.outSize < r.inSize ? `−${Math.round((1 - r.outSize / r.inSize) * 100)}%` : fmtBytes(r.outSize)), h('span.r-time', ago(r.at)))))
+          : h('p.muted.small', 'Nothing yet. Files you make show up here, so you can share them again or use them in another tool. They stay on this device.'));
+        return;
+      }
+      list.replaceChildren(...items.map((r) => {
+        const f = recent.file(r);
+        let thumb = h('span.rr-ic', icon(KIND_ICON[r.kind] || 'file', 20));
+        if (r.thumb) { const u = URL.createObjectURL(r.thumb); urls.push(u); thumb = h('img.rr-img', { src: u, alt: '', decoding: 'async' }); }
+        const acts = f ? [
+          h('button.icon-btn.sm', { 'aria-label': `Save ${r.name}`, title: 'Save', onclick: () => download({ name: r.name, blob: f, size: r.size }) }, icon('download', 16)),
+          navigator.canShare ? h('button.icon-btn.sm', { 'aria-label': `Share ${r.name}`, title: 'Share', onclick: () => shareResult({ name: r.name, blob: f }) }, icon('send', 16)) : null,
+          h('button.icon-btn.sm', { 'aria-label': `Use ${r.name} in another tool`, title: 'Use in another tool', onclick: () => app.openActions([f]) }, icon('sparkle', 16)),
+        ] : [h('small.muted', 'Too big to keep')];
+        return h('div.rr-item',
+          h('div.rr-thumb', thumb),
+          h('div.rr-body', h('strong.rr-name', { title: r.name }, r.name),
+            h('small.rr-meta', `${fmtBytes(r.size)} · ${ago(r.at)}`, r.local ? h('button.rr-local', { type: 'button', title: 'Made on this device', 'aria-label': 'Made on this device: never uploaded', onclick: showLocalInfo }, icon('lock', 11)) : null)),
+          h('div.rr-acts', ...acts.filter(Boolean)));
+      }));
+    };
+    paintRecent();
+    return card;
+  }
 }

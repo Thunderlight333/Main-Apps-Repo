@@ -1,6 +1,7 @@
 import { h, fmtBytes, fmtTime, clamp } from '../core/dom.js';
 import { icon } from '../core/icons.js';
 import { pageHeader, resultActions, friendly, toFile } from '../core/components.js';
+import { recent } from '../core/recent.js';
 import { toast, progressBar, feedback, notify, modal, toggle } from '../core/ui.js';
 import { tasks } from '../core/tasks.js';
 import { findUrl, readClipboardFiles, outName } from '../core/files.js';
@@ -246,6 +247,7 @@ export default function downloaderView() {
           });
         }
         history.add({ tool: 'download', name: res.name, inSize: res.size, outSize: res.size, kind: o.kind });
+        recent.add(res, { tool: 'download', local: false });
         const f = toFile(res);
         item.classList.add('done');
         cancel.remove();

@@ -1,7 +1,8 @@
 // Simple video editor: trim, crop, rotate/flip, resize, speed, mute/extract audio, export, frame grab.
 import { h, fmtTime, fmtBytes, clamp } from '../core/dom.js';
 import { icon } from '../core/icons.js';
-import { pageHeader, dropZone, resultActions, friendly } from '../core/components.js';
+import { pageHeader, dropZone, resultActions, friendly, localBadge } from '../core/components.js';
+import { recent } from '../core/recent.js';
 import { segmented, select, field, progressBar, toast, feedback, notify, slider, toggle, confirmDialog } from '../core/ui.js';
 import { tasks } from '../core/tasks.js';
 import { kindOf, outName, pickFiles } from '../core/files.js';
@@ -365,8 +366,9 @@ function createEditor(file, onClose) {
       });
       status.textContent = `Done: ${fmtBytes(res.size)}`;
       tk.done(`${res.name} · ${fmtBytes(res.size)}`);
-      resultHost.replaceChildren(h('div.result-card', h('div.rc-info', icon('check', 18), h('strong', res.name), h('span.muted', fmtBytes(res.size))), h('div.rc-actions', resultActions([res]))));
+      resultHost.replaceChildren(h('div.result-card', h('div.rc-info', icon('check', 18), h('strong', res.name), h('span.muted', fmtBytes(res.size)), localBadge()), h('div.rc-actions', resultActions([res]))));
       history.add({ tool: 'edit', name: file.name, inSize: file.size, outSize: res.size, kind: 'video' });
+      recent.add(res, { tool: 'edit' });
       feedback('done'); notify('Morph: export finished', res.name);
     } catch (e) {
       if (!e.cancelled && e.name !== 'AbortError') { status.textContent = ''; toast(friendly(e), 'error', 6000); feedback('error'); tk.fail(friendly(e)); }

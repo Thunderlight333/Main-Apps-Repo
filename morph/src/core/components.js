@@ -12,6 +12,8 @@ import { app } from '../app.js';
 import { saver, effectiveParallel } from './power.js';
 import { sortable, settle, reorderChildren, SORTS } from './sortable.js';
 import { tasks } from './tasks.js';
+import { recent } from './recent.js';
+import { modal } from './ui.js';
 
 export function pageHeader(title, sub, iconName, extra) {
   return h('header.page-head',
@@ -76,7 +78,7 @@ export function sortItems(arr, kind, get = (x) => x) {
 }
 
 /** A list of files with status/progress. Files can be reordered by dragging; outputs follow that order. */
-export function createQueue({ accept = () => true, onChange } = {}) {
+export function createQueue({ accept = () => true, onChange, local = true } = {}) {
   const items = [];
   const list = h('div.queue');
   let running = null;
@@ -131,7 +133,7 @@ export function createQueue({ accept = () => true, onChange } = {}) {
       d.pb.set(Math.max(0, it.progress), it.progress < 0 ? '…' : undefined);
       const msg = d.status.querySelector('.q-msg'); if (msg) msg.textContent = it.msg || '';
     } else if (it.status === 'done' && !it.results.length) {
-      d.status.replaceChildren(h('div.q-done', h('span.badge.ok', icon('check', 14), 'Added'), it.note ? h('span.q-sizes', it.note) : null));
+      d.status.replaceChildren(h('div.q-done', h('span.badge.ok', icon('check', 14), 'Added'), it.note ? h('span.q-sizes', it.note) : null, local ? localBadge() : null));
       d.actions.replaceChildren();
     } else if (it.status === 'done') {
       const r = it.results;
@@ -140,7 +142,9 @@ export function createQueue({ accept = () => true, onChange } = {}) {
       d.status.replaceChildren(h('div.q-done',
         h('span.badge.ok', icon('check', 14), r.length > 1 ? `${r.length} files` : 'Done'),
         it.note ? h('span.q-sizes', `${it.note} · ${fmtBytes(total)}`) : h('span.q-sizes', `${fmtBytes(it.file.size)} → ${fmtBytes(total)}`),
-        it.note ? null : diff > 0 ? h('span.badge.save', `−${diff}%`) : diff < 0 ? h('span.badge.grow', `+${-diff}%`) : null));
+        it.note ? null : diff > 0 ? h('span.badge.save', `−${diff}%`) : diff < 0 ? h('span.badge.grow', `+${-diff}%`) : null,
+        local ? localBadge() : null),
+        ...(it.warn ? [h('small.q-warn', icon('info', 14), it.warn)] : []));
       d.actions.replaceChildren(...resultActions(r));
     } else if (it.status === 'error') {
       d.status.replaceChildren(h('small.q-err', it.error));
@@ -213,7 +217,7 @@ export function createQueue({ accept = () => true, onChange } = {}) {
       const worker = async () => {
         for (;;) {
           const it = todo.shift(); if (!it || signal.aborted) return;
-          it.status = 'working'; it.progress = 0; it.msg = label + '…'; paint(it);
+          it.status = 'working'; it.progress = 0; it.msg = label + '…'; it.warn = ''; paint(it);
           let last = 0;
           try {
             const res = await job(it, {
@@ -224,6 +228,7 @@ export function createQueue({ accept = () => true, onChange } = {}) {
             it.results = res == null ? [] : Array.isArray(res) ? res : [res];
             it.status = 'done'; ok++;
             if (it.results.length) history.add({ tool, name: it.file.name, inSize: it.file.size, outSize: it.results.reduce((a, r) => a + r.size, 0), kind: it.kind });
+            it.results.forEach((r) => recent.add(r, { tool, local }));
             if (settings.get('autoSave')) it.results.forEach((r) => !r.savedToDisk && download(r));
           } catch (e) {
             console.error(e);
@@ -248,6 +253,28 @@ export function createQueue({ accept = () => true, onChange } = {}) {
     results() { return items.filter((x) => x.status === 'done').flatMap((x) => x.results); },
   };
   return api;
+}
+
+/** "On this device" badge: shows the file was processed locally and never uploaded. Tap for details. */
+export function localBadge() {
+  return h('button.badge.local', {
+    type: 'button', title: 'Done on this device: your file never left it',
+    onclick: (e) => { e.stopPropagation(); showLocalInfo(); },
+  }, icon('lock', 12), 'On this device');
+}
+export function showLocalInfo() {
+  modal({
+    title: 'Done on this device', sheet: true,
+    body: h('div.local-info',
+      h('div.li-hero', icon('lock', 26)),
+      h('p', h('strong', 'Your file never left this device.'), ' Morph did all the work right here, on your phone or computer. Nothing was uploaded to a server.'),
+      h('ul.li-list',
+        h('li', icon('check', 16), 'Private: nobody else can see your files'),
+        h('li', icon('check', 16), 'Works without internet'),
+        h('li', icon('check', 16), 'No upload or download waiting, even for huge files')),
+      h('p.muted.small', 'Online features (Downloader, Share links) are clearly marked “Online”.')),
+    actions: [{ label: 'Got it', primary: true }],
+  });
 }
 
 export function friendly(e) {

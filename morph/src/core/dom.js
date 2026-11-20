@@ -8,13 +8,13 @@ export function h(tag, props, ...kids) {
   const el = document.createElement((m && m[1]) || 'div');
   if (m && m[2]) for (const p of m[2].match(/[.#][\w-]+/g)) p[0] === '.' ? el.classList.add(p.slice(1)) : (el.id = p.slice(1));
   for (const [k, v] of Object.entries(props)) {
-    if (v == null || v === false) continue;
+    if (v == null || (v === false && !k.startsWith('aria-'))) continue;
     if (k.startsWith('on') && typeof v === 'function') el.addEventListener(k.slice(2).toLowerCase(), v);
     else if (k === 'class') el.className += (el.className ? ' ' : '') + v;
     else if (k === 'style' && typeof v === 'object') Object.assign(el.style, v);
     else if (k === 'html') el.innerHTML = v;
     else if (k in el && k !== 'list' && !k.includes('-')) el[k] = v;
-    else el.setAttribute(k, v === true ? '' : v);
+    else el.setAttribute(k, k.startsWith('aria-') ? String(v) : v === true ? '' : v); // aria-pressed etc. need "true"/"false"
   }
   append(el, kids);
   return el;

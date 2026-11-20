@@ -1,7 +1,8 @@
 // PDF toolkit (ILovePDF-style), fully local.
 import { h, fmtBytes, baseName, clamp } from '../core/dom.js';
 import { icon } from '../core/icons.js';
-import { pageHeader, dropZone, resultActions, friendly, emptyState, orderTools, sortItems } from '../core/components.js';
+import { pageHeader, dropZone, resultActions, friendly, emptyState, orderTools, sortItems, localBadge } from '../core/components.js';
+import { recent } from '../core/recent.js';
 import { sortable, settle, reorderChildren } from '../core/sortable.js';
 import { segmented, slider, field, toast, progressBar, feedback, modal, select } from '../core/ui.js';
 import { tasks } from '../core/tasks.js';
@@ -300,10 +301,11 @@ function toolPage(t, incoming) {
       progress.set(1);
       const inSize = files.reduce((a, f) => a + f.size, 0), outSize = results.reduce((a, r) => a + r.size, 0);
       history.add({ tool: t.title, name: files.length > 1 ? `${files.length} files` : files[0].name, inSize, outSize, kind: 'pdf' });
+      results.forEach((r) => recent.add(r, { tool: t.title }));
       const diff = Math.round((1 - outSize / inSize) * 100);
       resultHost.replaceChildren(h('div.result-card',
         h('div.rc-info', icon('check', 18), h('strong', results.length > 1 ? `${results.length} files ready` : results[0].name),
-          h('span.muted', `${fmtBytes(outSize)}${t.id === 'compress' && diff > 0 ? ` (−${diff}%)` : ''}`)),
+          h('span.muted', `${fmtBytes(outSize)}${t.id === 'compress' && diff > 0 ? ` (−${diff}%)` : ''}`), localBadge()),
         h('div.rc-actions', resultActions(results))));
       feedback('done');
       tk.done(results.length > 1 ? `${results.length} files ready` : results[0].name);

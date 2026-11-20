@@ -910,3 +910,57 @@ select.input { appearance: none; background-image: linear-gradient(45deg, transp
 }
 @media (max-width: 380px) { .task-pill .tp-label { max-width: 90px; } }
 @media (max-width: 860px) { #toasts { bottom: calc(var(--tabbar) + 12px + env(safe-area-inset-bottom)); } }
+
+/* ---------- "On this device" badge ---------- */
+.badge.local { border: 0; cursor: pointer; font: inherit; font-size: .72rem; font-weight: 700; background: var(--accent-soft); color: var(--accent-ink); }
+.badge.local:hover { background: color-mix(in srgb, var(--accent) 24%, transparent); }
+.q-warn { display: flex; align-items: center; gap: 6px; margin-top: 6px; color: var(--warn); font-size: .8rem; line-height: 1.35; }
+.q-warn .ic { flex: none; }
+.rc-info .badge.local { margin-left: 2px; }
+.local-info { display: flex; flex-direction: column; gap: 12px; }
+.local-info p { margin: 0; line-height: 1.5; }
+.li-hero { width: 52px; height: 52px; border-radius: 14px; display: grid; place-items: center; color: var(--accent-ink); background: var(--accent-soft); }
+.li-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.li-list li { display: flex; align-items: center; gap: 10px; font-weight: 600; font-size: .92rem; }
+.li-list .ic { color: var(--ok); flex: none; }
+
+/* ---------- Ready for… ---------- */
+.ready-mode .seg { display: flex; width: 100%; }
+.ready-mode .seg button { flex: 1; justify-content: center; padding: 8px 12px; }
+.ready-block { display: flex; flex-direction: column; gap: 14px; }
+.ready-sec { display: flex; flex-direction: column; gap: 12px; }
+.rp-head h4, .rc-group h4 { margin: 0; font-size: .78rem; text-transform: uppercase; letter-spacing: .06em; color: var(--text-3); font-weight: 700; display: flex; align-items: center; gap: 6px; }
+.rp-head { margin-top: 2px; }
+.rp-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.rp-wrap { position: relative; display: flex; min-width: 0; }
+.rp-wrap .preset { flex: 1; min-width: 0; }
+.rp-wrap .preset strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
+.rp-wrap:has(.rp-mini) .preset strong { padding-right: 46px; }
+.rp-mini { position: absolute; top: 7px; width: 24px; height: 24px; border-radius: 7px; display: grid; place-items: center; border: 0; background: var(--surface-2); color: var(--text-2); cursor: pointer; }
+.rp-mini:hover { color: var(--text); background: var(--surface-3); }
+.rp-del { right: 7px; }
+.rp-edit { right: 35px; }
+.rc-group { display: flex; flex-direction: column; gap: 10px; padding-top: 12px; border-top: 1px solid var(--line); }
+.rc-save { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding-top: 12px; border-top: 1px solid var(--line); }
+.plan.warn { color: var(--warn); background: color-mix(in srgb, var(--warn) 10%, transparent); }
+.plan.warn .ic { color: var(--warn); flex: none; }
+.ready-intro { margin-top: 22px; display: flex; flex-direction: column; gap: 12px; }
+.ready-intro h3 { margin: 0; font-size: 1rem; }
+.ready-intro p { margin: 0; display: flex; align-items: center; gap: 6px; }
+.ready-landing { grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); }
+
+/* ---------- Recent results (Home) ---------- */
+.rr-list { display: flex; flex-direction: column; }
+.rr-item { display: grid; grid-template-columns: 44px minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 9px 2px; border-top: 1px solid var(--line); }
+.rr-item:first-child { border-top: 0; }
+.rr-thumb { width: 44px; height: 44px; border-radius: 9px; overflow: hidden; background: var(--surface-2); display: grid; place-items: center; color: var(--text-3); }
+.rr-img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.rr-body { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.rr-name { font-size: .9rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rr-meta { color: var(--text-3); font-size: .78rem; display: flex; align-items: center; gap: 6px; }
+.rr-local { border: 0; background: none; padding: 0; color: var(--accent-ink); cursor: pointer; display: inline-grid; place-items: center; }
+.rr-acts { display: flex; gap: 4px; }
+@media (max-width: 520px) {
+  .rr-acts .icon-btn.sm { width: 32px; height: 32px; }
+  .ready-landing { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}

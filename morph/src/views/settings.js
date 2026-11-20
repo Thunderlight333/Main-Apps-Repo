@@ -4,6 +4,7 @@ import { pageHeader } from '../core/components.js';
 import { segmented, toggle, select, toast, confirmDialog, progressBar } from '../core/ui.js';
 import { settings, ACCENT_LIST, accentColor } from '../core/settings.js';
 import { history } from '../core/history.js';
+import { recent } from '../core/recent.js';
 import { clearTemp, supportsStreamingSave } from '../core/save.js';
 import { isFFmpegCached, cacheFFmpeg } from '../engines/ffmpeg.js';
 import { hasWebCodecs, supportsHevc } from '../engines/media.js';
@@ -44,6 +45,9 @@ export default function settingsView() {
       persistBtn.hidden = !!p;
     } catch { storage.textContent = 'Unknown'; }
   }
+
+  const recentUse = h('span.muted.small');
+  const refreshRecent = async () => { recentUse.textContent = `${fmtBytes(await recent.usage())} used`; };
 
   const caps = h('div.caps');
   (async () => {
@@ -131,8 +135,10 @@ export default function settingsView() {
           dlBackendRows,
         ]),
         section('privacy', 'Privacy', 'lock', [
-          row('Remember recent activity', 'Stores only file names & sizes on this device', toggle(S('history'), set('history'))),
-          row('Clear activity', null, h('button.btn.ghost.sm', { onclick: () => { history.clear(); toast('Activity cleared', 'success'); } }, 'Clear')),
+          row('Keep recent results', 'Keeps copies of the files you make on this device, so you can share or reuse them from Home. Never uploaded.', toggle(S('recentKeep'), (v) => { settings.set('recentKeep', v); if (!v) recent.clear(); })),
+          row('Space for recent results', 'The oldest results are removed when this fills up. Bigger files are listed but not kept.', h('div.inline', recentUse, segmented([{ value: 250, label: '250 MB' }, { value: 1024, label: '1 GB' }, { value: 3072, label: '3 GB' }], S('recentSpace'), async (v) => { settings.set('recentSpace', v); await recent.trim(); refreshRecent(); }, { small: true }))),
+          row('Remember recent activity', 'Stores only file names & sizes on this device (for your stats)', toggle(S('history'), set('history'))),
+          row('Clear recent results & activity', null, h('button.btn.ghost.sm', { onclick: async () => { history.clear(); await recent.clear(); refreshRecent(); toast('Recent results and activity cleared', 'success'); } }, 'Clear')),
           h('div.set-row', h('span.sr-ic', icon('lock', 18)), h('div.sr-text', h('strong', 'Your files stay on your device'), h('small', 'Converting, compressing, editing and PDF tools never upload anything. Only the link downloader talks to a server.'))),
         ]),
         section('about', 'About', 'info', [
@@ -140,6 +146,6 @@ export default function settingsView() {
           row('Keyboard shortcuts', 'Ctrl/⌘+V paste files · Space play/pause · I / O set trim · ←/→ step frame', null),
           row('Reset all settings', null, h('button.btn.danger.sm', { onclick: async () => { if (await confirmDialog('Reset settings?', 'All settings go back to their defaults.', 'Reset', true)) { settings.reset(); app.go('settings'); toast('Settings reset'); } } }, 'Reset')),
         ]))));
-  refreshOffline();
+  refreshOffline(); refreshRecent();
   return { el };
 }
