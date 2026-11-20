@@ -15,11 +15,11 @@ export async function canEncode(fmt) {
   const b = await toBlob(c, IMG_MIME[fmt], 0.8).catch(() => null);
   return (encSupport[fmt] = !!b && b.type === IMG_MIME[fmt]);
 }
-function OffscreenCanvasOr(w, hgt) {
+export function OffscreenCanvasOr(w, hgt) {
   if (typeof OffscreenCanvas !== 'undefined') return new OffscreenCanvas(w, hgt);
   const c = document.createElement('canvas'); c.width = w; c.height = hgt; return c;
 }
-function toBlob(c, type, q) {
+export function toBlob(c, type, q) {
   if (c.convertToBlob) return c.convertToBlob({ type, quality: q });
   return new Promise((res, rej) => c.toBlob((b) => (b ? res(b) : rej(new Error('encode failed'))), type, q));
 }
@@ -52,7 +52,7 @@ export async function imageInfo(file) {
 }
 
 /** Draw bitmap into canvas with optional resize/rotate/flip/background. */
-function render(bmp, { maxW, maxH, width, height, rotate = 0, flipH = false, flipV = false, background, crop }) {
+export function render(bmp, { maxW, maxH, width, height, rotate = 0, flipH = false, flipV = false, background, crop }) {
   let sx = 0, sy = 0, sw = bmp.width, sh = bmp.height;
   if (crop) ({ left: sx, top: sy, width: sw, height: sh } = crop);
   let w = width || sw, hgt = height || (width ? Math.round((sh / sw) * width) : sh);
@@ -73,7 +73,7 @@ function render(bmp, { maxW, maxH, width, height, rotate = 0, flipH = false, fli
   return c;
 }
 
-async function encode(canvas, fmt, quality) {
+export async function encode(canvas, fmt, quality) {
   if (fmt === 'bmp') return encodeBMP(canvas);
   if (fmt === 'ico') return encodeICO(canvas);
   return toBlob(canvas, IMG_MIME[fmt], quality);

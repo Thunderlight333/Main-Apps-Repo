@@ -14,12 +14,15 @@ const TOOLS = [
   { route: 'convert', icon: 'convert', title: 'Convert', desc: 'Any photo, video, audio or PDF to the format you need', tone: 'a' },
   { route: 'compress', icon: 'compress', title: 'Compress', desc: 'Smart presets to shrink videos and photos', tone: 'b' },
   { route: 'edit', icon: 'scissors', title: 'Video editor', desc: 'Trim, crop, rotate, speed, mute, export', tone: 'c' },
-  { route: 'pdf', icon: 'pdf', title: 'PDF tools', desc: 'Merge, split, compress, sign, protect & more', tone: 'd' },
+  { route: 'photo', icon: 'image', title: 'Photo tools', desc: 'Resize, crop, watermark, blur faces, remove background', tone: 'f' },
+  { route: 'pdf', icon: 'pdf', title: 'PDF tools', desc: 'Merge, split, compress, sign, scan, OCR & more', tone: 'd' },
+  { route: 'recipes', icon: 'recipe', title: 'Recipes', desc: 'Several steps in one tap, saved for next time', tone: 'a' },
   { route: 'download', icon: 'download', title: 'Downloader', desc: 'Save videos from YouTube, X, TikTok, Instagram…', tone: 'e', online: true },
   { route: 'links', icon: 'link', title: 'Share links', desc: 'Turn a video into a short link and QR code', tone: 'f' },
 ];
 const QUICK = [
   ['ready/discord', 'Discord (10 MB)'], ['ready/whatsapp', 'For WhatsApp'], ['ready/email', 'For Email'], ['ready/reels', 'Reels 9:16'],
+  ['scan', 'Scan to PDF'], ['photo/removebg', 'Remove background'], ['photo/blur', 'Blur faces'], ['photo/clean', 'Remove location'],
   ['convert', 'Video → MP4'], ['convert', 'Video → MP3'], ['convert', 'HEIC → JPG'], ['convert', 'PNG → WebP'],
   ['pdf/merge', 'Merge PDF'], ['pdf/img2pdf', 'JPG → PDF'], ['pdf/pdf2img', 'PDF → JPG'], ['pdf/sign', 'Sign PDF'], ['convert', 'Video → GIF'],
 ];

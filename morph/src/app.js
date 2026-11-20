@@ -5,14 +5,18 @@ import { settings, applyAppearance } from './core/settings.js';
 import { kindOf, filesFromDataTransfer, findUrl } from './core/files.js';
 import { toast, modal, closeTopModal } from './core/ui.js';
 import { tasks, taskPill, bindTasks } from './core/tasks.js';
+import { seenGuide, showGuide } from './core/onboard.js';
 
 export const NAV = [
   { id: 'home', label: 'Home', icon: 'home', mobile: true },
   { id: 'convert', label: 'Convert', icon: 'convert', mobile: true },
   { id: 'compress', label: 'Compress', icon: 'compress', mobile: true },
   { id: 'ready', label: 'Ready for…', icon: 'target' },
+  { id: 'photo', label: 'Photo tools', icon: 'image' },
   { id: 'edit', label: 'Video editor', short: 'Edit', icon: 'scissors', mobile: true },
   { id: 'pdf', label: 'PDF tools', short: 'PDF', icon: 'pdf', mobile: true },
+  { id: 'scan', label: 'Scan to PDF', icon: 'camera', hidden: true },
+  { id: 'recipes', label: 'Recipes', icon: 'recipe' },
   { id: 'download', label: 'Downloader', icon: 'download' },
   { id: 'links', label: 'Share links', icon: 'link' },
   { id: 'settings', label: 'Settings', icon: 'settings' },
@@ -23,6 +27,9 @@ const loaders = {
   convert: () => import('./views/convert.js'),
   compress: () => import('./views/compress.js'),
   ready: () => import('./views/ready.js'),
+  photo: () => import('./views/photo.js'),
+  scan: () => import('./views/scan.js'),
+  recipes: () => import('./views/recipes.js'),
   edit: () => import('./views/editor.js'),
   pdf: () => import('./views/pdf.js'),
   download: () => import('./views/downloader.js'),
@@ -35,7 +42,7 @@ let pending = null; // files handed to the next view
 let navToken = 0;
 let shown = ''; // route on screen, e.g. "convert" or "pdf/merge"
 // Tool screens stay alive in the background (hidden), so their jobs keep running while you use other tools.
-const KEEP = new Set(['ready', 'convert', 'compress', 'edit', 'pdf', 'download', 'links']);
+const KEEP = new Set(['ready', 'photo', 'scan', 'recipes', 'convert', 'compress', 'edit', 'pdf', 'download', 'links']);
 const alive = new Map(); // id -> { id, view, page, scroll }
 
 export const app = {
@@ -70,15 +77,19 @@ export const app = {
       add('edit', 'scissors', 'Edit video', 'Trim, crop, rotate, speed, sound & music');
       add('links', 'link', 'Get a share link', 'A short link and QR code, like Gyazo');
     } else if (k === 'image') {
+      add('photo', 'image', 'Photo tools', 'Resize, crop, watermark, blur faces, remove background…');
       add('compress', 'compress', 'Compress photos', 'Smaller files, same look');
       add('convert', 'convert', 'Convert photos', 'JPG, PNG, WebP, AVIF, ICO, PDF…');
       add('pdf', 'pdf', 'Photos → PDF', 'Combine into one PDF', 'img2pdf');
+      add('scan', 'camera', 'Scan documents', 'Photos of paper → straight, clean PDF');
+      add('photo', 'text', 'Copy text from photo', 'Read the words in a photo or screenshot', 'ocr');
     } else if (k === 'audio') {
       add('convert', 'convert', 'Convert audio', 'MP3, M4A, WAV, OGG, FLAC');
       add('compress', 'compress', 'Compress audio', 'Lower bitrate, smaller file');
     } else if (k === 'pdf') {
       add('pdf', 'merge', 'Merge PDFs', 'Combine into one', 'merge');
       add('pdf', 'compress', 'Compress PDF', 'Reduce file size', 'compress');
+      add('pdf', 'search', 'Make searchable (OCR)', 'Scanned PDF → text you can search and copy', 'ocr');
       add('convert', 'image', 'PDF → Images', 'JPG, PNG or WebP');
       add('pdf', 'grid', 'More PDF tools', 'Split, rotate, sign, protect…');
     } else if (k === 'text') {
@@ -88,6 +99,7 @@ export const app = {
       add('compress', 'compress', 'Compress', 'Photos & videos');
       add('pdf', 'zip', 'Merge into PDF', 'Images & PDFs', 'merge');
     }
+    add('recipes', 'recipe', 'Run a recipe', 'Several steps in one go (your own or ready-made)');
     const m = modal({
       title: `${files.length} file${files.length > 1 ? 's' : ''} ready`,
       body: h('div.action-list', opts.map((o) => h('button.action-item', {
@@ -176,9 +188,12 @@ function onBack(e) {
   if (!guarded || armed || e.state?.morph !== 'base') return; // not our Back (e.g. a typed address)
   // We are on the "base" entry now; keep its address in step with the screen.
   history.replaceState({ morph: 'base' }, '', '#/' + shown);
+  const guide = document.querySelector('.guide:not(.out) .guide-skip');
+  if (guide) { guide.click(); pushTop(); return; }
   if (closeTopModal()) { pushTop(); return; }
   const [id, ...sub] = shown.split('/');
   if (sub.length) { pushTop(); app.go(id); return; }
+  if (id === 'scan') { pushTop(); app.go('pdf'); return; }
   if (id !== 'home') {
     pushTop();
     const working = tasks.running().length;
@@ -207,7 +222,7 @@ function buildShell() {
   const installBtn = h('button.btn.ghost.sm#install', { hidden: true }, icon('download', 16), 'Install app');
   const side = h('aside.sidebar',
     h('a.brand', { href: '#/' }, logo(), h('span', 'Morph')),
-    h('nav.side-nav', NAV.map((n) => navLink(n, 'side-link'))),
+    h('nav.side-nav', NAV.filter((n) => !n.hidden).map((n) => navLink(n, 'side-link'))),
     h('div.side-foot', installBtn, h('div.side-note', icon('lock', 14), h('span', 'Files never leave your device'))));
   const tp = taskPill();
   const top = h('header.topbar',
@@ -335,5 +350,9 @@ export function start() {
   addEventListener('popstate', onBack);
   // Browsers only honour an app's Back handling after the user has touched the page.
   addEventListener('pointerdown', installGuard, true); addEventListener('keydown', installGuard, true);
-  render().then(() => { pickUpShared(); fileHandlers(); });
+  render().then(() => {
+    pickUpShared(); fileHandlers();
+    // First visit: a short welcome guide (only on Home, never over a shared file or a deep link).
+    if (shown === 'home' && !location.search.includes('shared=') && !seenGuide()) showGuide({ canInstall: () => app.installAvailable?.(), install: () => app.install?.() });
+  });
 }

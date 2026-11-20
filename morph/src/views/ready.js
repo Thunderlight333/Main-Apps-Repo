@@ -324,75 +324,9 @@ export default function readyView({ files, sub } = {}) {
   }
   async function job(it, run, ctx, { spec, tag }, total) {
     const target = targetFor(it, spec, total);
-    if (it.kind === 'image') return imageJob(it, run, ctx, spec, tag, target);
-    if (it.kind === 'pdf') return pdfJob(it, run, ctx, spec, tag, target);
-    it.media ||= await probe(it.file);
-    const dur = it.media.duration || 1;
-    if (it.kind === 'audio') {
-      const fmt = spec.audio?.format || 'm4a';
-      let kbps = spec.audio?.kbps || 128;
-      if (target) kbps = Math.max(24, Math.min(kbps, Math.floor((target * 8 * 0.93) / dur / 1000)));
-      return processMedia(it.file, { container: fmt, audio: { bitrate: kbps * 1000 } }, { ...ctx, run, name: queue.nameFor(it, outName(it.file.name, fmt, tag)) });
-    }
-    const p = videoPlan(it.media, spec, target);
-    const container = spec.video?.format === 'webm' ? 'webm' : 'mp4';
-    const opts = {
-      container,
-      video: { codec: p.codec, width: p.width, height: p.height, bitrate: p.vbr, fps: p.fps || undefined, crop: p.crop || undefined, forceTranscode: true },
-      audio: p.abr ? { bitrate: p.abr } : { discard: true },
-      duration: dur,
-    };
-    const name = queue.nameFor(it, outName(it.file.name, container, tag));
-    let res = await processMedia(it.file, opts, { ...ctx, run, name, duration: dur });
-    // Encoders don't always hit the bitrate exactly: if it came out too big, try once more a bit smaller.
-    if (target && res.size > target && !res.savedToDisk) {
-      ctx.onStatus?.('Slightly too big. Making it smaller…');
-      opts.video.bitrate = Math.max(40e3, p.vbr * ((target * 0.9) / res.size));
-      res = await processMedia(it.file, opts, { ...ctx, run: { method: 'auto', ready: Promise.resolve() }, name, duration: dur });
-    }
-    if (target && res.size > target) it.warn = `It is ${fmtBytes(res.size)}, over the ${fmtBytes(target)} limit. Trim the video in the Video editor first, then try again.`;
-    return res;
-  }
-  async function imageJob(it, run, ctx, spec, tag, target) {
-    it.dims ||= await imageInfo(it.file);
-    const im = spec.image || {};
-    let e = extOf(it.file.name); if (e === 'jpeg') e = 'jpg';
-    let fmt = im.format === 'keep' || !im.format ? (['jpg', 'png', 'webp'].includes(e) ? e : 'jpg') : im.format;
-    if (target && fmt === 'png') fmt = 'jpg'; // PNG can't be squeezed to a size limit
-    if (fmt === 'avif' && !(await canEncode('avif'))) fmt = 'webp';
-    const crop = centerCrop(it.dims.width, it.dims.height, spec.aspect);
-    const r = await convertImage(it.file, { format: fmt, quality: im.q ?? 0.85, maxW: im.maxW || undefined, maxH: im.maxH || undefined, crop: crop || undefined, targetBytes: target || undefined }, ctx.onProgress);
-    let blob = r.blob, ext = r.format;
-    // Simple graphics (screenshots, logos) are often smaller as PNG: use that when it wins and no size limit forces JPG.
-    if (!target && e === 'png' && ext === 'jpg' && blob.size > it.file.size) {
-      const alt = await convertImage(it.file, { format: 'png', maxW: im.maxW || undefined, maxH: im.maxH || undefined, crop: crop || undefined });
-      if (alt.blob.size < blob.size) { blob = alt.blob; ext = 'png'; }
-    }
-    // Nothing needed changing and the original is smaller: keep the original.
-    const same = !crop && r.width === it.dims.width && r.height === it.dims.height && ext === e;
-    if (same && it.file.size <= blob.size && (!target || it.file.size <= target)) blob = it.file;
-    if (target && blob.size > target) it.warn = `Could only get it to ${fmtBytes(blob.size)}.`;
-    return writeBlob(run, queue.nameFor(it, outName(it.file.name, ext, tag)), blob);
-  }
-  async function pdfJob(it, run, ctx, spec, tag, target) {
-    const { compress } = await import('../engines/pdf.js');
-    const name = queue.nameFor(it, outName(it.file.name, 'pdf', tag));
-    const level = spec.pdf?.level || 'auto';
-    let best = it.file;
-    if (level !== 'auto') {
-      const b = await compress(it.file, { level }, ctx.onProgress);
-      if (b.size < best.size) best = b;
-    } else {
-      const levels = target && it.file.size > target ? ['lossless', 'light', 'recommended', 'extreme'] : ['lossless'];
-      for (let i = 0; i < levels.length; i++) {
-        ctx.onStatus?.(i ? 'Squeezing harder to fit the limit…' : 'Optimising…');
-        const b = await compress(it.file, { level: levels[i] }, (p) => ctx.onProgress((i + p) / levels.length));
-        if (b.size < best.size) best = b;
-        if (!target || best.size <= target) break;
-      }
-    }
-    if (target && best.size > target) it.warn = `Could only get it to ${fmtBytes(best.size)}. Try “Split” in PDF tools to send it in parts.`;
-    return writeBlob(run, name, best);
+    const r = await fitFile(it.file, spec, target, { ...ctx, run, media: it.media, dims: it.dims, kind: it.kind, name: (ext) => queue.nameFor(it, outName(it.file.name, ext, tag)) });
+    if (r.warn) it.warn = r.warn;
+    return r.res;
   }
 
   // ---------- files ----------
@@ -442,4 +376,85 @@ export default function readyView({ files, sub } = {}) {
     destroy: () => queue.cancel(),
     get busy() { return queue.running; },
   };
+}
+
+// ---------- processing (also used by Recipes) ----------
+/**
+ * Make one file fit a spec. o: { run, name(ext) → file name, kind?, media?, dims?, onProgress, onStatus, signal }.
+ * Returns { res, warn }.
+ */
+export async function fitFile(file, spec, target, o) {
+  const kind = o.kind || kindOf(file);
+  const ctx = o;
+  const run = o.run;
+  const w = { warn: '' };
+  if (kind === 'image') return { res: await imageJob(file, run, ctx, spec, target, w, o), warn: w.warn };
+  if (kind === 'pdf') return { res: await pdfJob(file, run, ctx, spec, target, w, o), warn: w.warn };
+  const media = o.media || await probe(file);
+  const dur = media.duration || 1;
+  if (kind === 'audio') {
+    const fmt = spec.audio?.format || 'm4a';
+    let kbps = spec.audio?.kbps || 128;
+    if (target) kbps = Math.max(24, Math.min(kbps, Math.floor((target * 8 * 0.93) / dur / 1000)));
+    return { res: await processMedia(file, { container: fmt, audio: { bitrate: kbps * 1000 } }, { ...ctx, run, name: o.name(fmt) }), warn: '' };
+  }
+  const p = videoPlan(media, spec, target);
+  const container = spec.video?.format === 'webm' ? 'webm' : 'mp4';
+  const opts = {
+    container,
+    video: { codec: p.codec, width: p.width, height: p.height, bitrate: p.vbr, fps: p.fps || undefined, crop: p.crop || undefined, forceTranscode: true },
+    audio: p.abr ? { bitrate: p.abr } : { discard: true },
+    duration: dur,
+  };
+  const name = o.name(container);
+  let res = await processMedia(file, opts, { ...ctx, run, name, duration: dur });
+  // Encoders don't always hit the bitrate exactly: if it came out too big, try once more a bit smaller.
+  if (target && res.size > target && !res.savedToDisk) {
+    ctx.onStatus?.('Slightly too big. Making it smaller…');
+    opts.video.bitrate = Math.max(40e3, p.vbr * ((target * 0.9) / res.size));
+    res = await processMedia(file, opts, { ...ctx, run: { method: 'auto', ready: Promise.resolve() }, name, duration: dur });
+  }
+  if (target && res.size > target) w.warn = `It is ${fmtBytes(res.size)}, over the ${fmtBytes(target)} limit. Trim the video in the Video editor first, then try again.`;
+  return { res, warn: w.warn };
+}
+async function imageJob(file, run, ctx, spec, target, w, o) {
+  const dims = o.dims || await imageInfo(file);
+  const im = spec.image || {};
+  let e = extOf(file.name); if (e === 'jpeg') e = 'jpg';
+  let fmt = im.format === 'keep' || !im.format ? (['jpg', 'png', 'webp'].includes(e) ? e : 'jpg') : im.format;
+  if (target && fmt === 'png') fmt = 'jpg'; // PNG can't be squeezed to a size limit
+  if (fmt === 'avif' && !(await canEncode('avif'))) fmt = 'webp';
+  const crop = centerCrop(dims.width, dims.height, spec.aspect);
+  const r = await convertImage(file, { format: fmt, quality: im.q ?? 0.85, maxW: im.maxW || undefined, maxH: im.maxH || undefined, crop: crop || undefined, targetBytes: target || undefined }, ctx.onProgress);
+  let blob = r.blob, ext = r.format;
+  // Simple graphics (screenshots, logos) are often smaller as PNG: use that when it wins and no size limit forces JPG.
+  if (!target && e === 'png' && ext === 'jpg' && blob.size > file.size) {
+    const alt = await convertImage(file, { format: 'png', maxW: im.maxW || undefined, maxH: im.maxH || undefined, crop: crop || undefined });
+    if (alt.blob.size < blob.size) { blob = alt.blob; ext = 'png'; }
+  }
+  // Nothing needed changing and the original is smaller: keep the original.
+  const same = !crop && r.width === dims.width && r.height === dims.height && ext === e;
+  if (same && file.size <= blob.size && (!target || file.size <= target)) blob = file;
+  if (target && blob.size > target) w.warn = `Could only get it to ${fmtBytes(blob.size)}.`;
+  return writeBlob(run, o.name(ext), blob);
+}
+async function pdfJob(file, run, ctx, spec, target, w, o) {
+  const { compress } = await import('../engines/pdf.js');
+  const name = o.name('pdf');
+  const level = spec.pdf?.level || 'auto';
+  let best = file;
+  if (level !== 'auto') {
+    const b = await compress(file, { level }, ctx.onProgress);
+    if (b.size < best.size) best = b;
+  } else {
+    const levels = target && file.size > target ? ['lossless', 'light', 'recommended', 'extreme'] : ['lossless'];
+    for (let i = 0; i < levels.length; i++) {
+      ctx.onStatus?.(i ? 'Squeezing harder to fit the limit…' : 'Optimising…');
+      const b = await compress(file, { level: levels[i] }, (p) => ctx.onProgress?.((i + p) / levels.length));
+      if (b.size < best.size) best = b;
+      if (!target || best.size <= target) break;
+    }
+  }
+  if (target && best.size > target) w.warn = `Could only get it to ${fmtBytes(best.size)}. Try “Split” in PDF tools to send it in parts.`;
+  return writeBlob(run, name, best);
 }

@@ -258,7 +258,40 @@ document.getElementById('copy').onclick=async function(){var b=this;try{await na
 </script></body></html>`);
 }
 
-const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.mjs': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.png': 'image/png', '.wasm': 'application/wasm', '.webmanifest': 'application/manifest+json', '.json': 'application/json' };
+// ---- Web page → PDF: uses Chrome / Edge / Chromium already installed on this PC (headless print). ----
+let browserPath;
+function findBrowser() {
+  if (browserPath !== undefined) return browserPath;
+  const env = process.env.MORPH_CHROME;
+  const list = env ? [env] : process.platform === 'win32'
+    ? ['PROGRAMFILES', 'PROGRAMFILES(X86)', 'LOCALAPPDATA'].flatMap((v) => process.env[v] ? [
+      path.join(process.env[v], 'Google/Chrome/Application/chrome.exe'), path.join(process.env[v], 'Microsoft/Edge/Application/msedge.exe')] : [])
+    : process.platform === 'darwin'
+      ? ['/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', '/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge', '/Applications/Chromium.app/Contents/MacOS/Chromium']
+      : ['/usr/bin/google-chrome', '/usr/bin/google-chrome-stable', '/usr/bin/chromium', '/usr/bin/chromium-browser', '/usr/bin/microsoft-edge', '/snap/bin/chromium'];
+  browserPath = list.find((p) => { try { return fs.statSync(p).isFile(); } catch { return false; } }) || null;
+  return browserPath;
+}
+function webPdf(req, res, url) {
+  const bin = findBrowser();
+  if (!bin) return json(res, 501, { error: 'Web page to PDF needs Google Chrome, Microsoft Edge or Chromium installed on the PC running the Morph server.' });
+  const out = path.join(TMP, `web-${Date.now()}-${Math.random().toString(36).slice(2)}.pdf`);
+  const args = ['--headless=new', '--disable-gpu', '--no-pdf-header-footer', '--hide-scrollbars', '--disable-extensions', '--no-first-run',
+    `--user-data-dir=${path.join(TMP, 'chrome-profile')}`, '--virtual-time-budget=10000', '--run-all-compositor-stages-before-draw', `--print-to-pdf=${out}`, url];
+  if (process.getuid?.() === 0) args.unshift('--no-sandbox');
+  const p = spawn(bin, args, { stdio: 'ignore' });
+  const timer = setTimeout(() => p.kill('SIGKILL'), 90_000);
+  p.on('close', () => {
+    clearTimeout(timer);
+    if (!fs.existsSync(out) || !fs.statSync(out).size) return json(res, 502, { error: 'Could not open that page. Check the link, or try again.' });
+    const host = (() => { try { return new URL(url).hostname.replace(/^www\./, ''); } catch { return 'page'; } })();
+    const name = `${host}-${new Date().toISOString().slice(0, 10)}.pdf`;
+    res.on('close', () => fs.rm(out, { force: true }, () => {}));
+    sendFile(req, res, out, 'application/pdf', { 'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(name)}`, 'Cache-Control': 'no-store' });
+  });
+}
+
+const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.mjs': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.png': 'image/png', '.wasm': 'application/wasm', '.webmanifest': 'application/manifest+json', '.json': 'application/json', '.onnx': 'application/octet-stream', '.gz': 'application/octet-stream' };
 function serveStatic(req, res, pathname) {
   let p = path.normalize(path.join(DIST, decodeURIComponent(pathname)));
   if (!p.startsWith(DIST)) { res.writeHead(403); return res.end(); }
@@ -272,7 +305,7 @@ http.createServer(async (req, res) => {
   const u = new URL(req.url, 'http://x');
   if (req.method === 'OPTIONS') { res.writeHead(204, cors); return res.end(); }
   try {
-    if (u.pathname === '/api/health') return json(res, 200, { ok: true, ytdlp: !!YTDLP, ffmpeg: FFMPEG, share: true, lan: lanAddrs() });
+    if (u.pathname === '/api/health') return json(res, 200, { ok: true, ytdlp: !!YTDLP, ffmpeg: FFMPEG, share: true, webpdf: !!findBrowser(), lan: lanAddrs() });
     if (u.pathname === '/api/share' && req.method === 'POST') return receiveShare(req, res, u.searchParams);
     let m;
     if ((m = u.pathname.match(/^\/api\/share\/([A-Za-z0-9]+)$/)) && req.method === 'DELETE') {
@@ -290,6 +323,11 @@ http.createServer(async (req, res) => {
       if (!meta) { res.writeHead(404, { 'Content-Type': 'text/html; charset=utf-8' }); return res.end('<!doctype html><meta name="viewport" content="width=device-width"><body style="font-family:system-ui;padding:40px;text-align:center"><h1>Link not found</h1><p>It may have expired or been deleted.</p>'); }
       if (m[2]) return sendFile(req, res, path.join(SHARES, meta.file), meta.type, { 'Content-Disposition': `inline; filename*=UTF-8''${encodeURIComponent(meta.name)}`, 'Cache-Control': 'public, max-age=3600' });
       return sharePage(req, res, meta);
+    }
+    if (u.pathname === '/api/webpdf') {
+      const url = u.searchParams.get('url');
+      if (!validUrl(url)) return json(res, 400, { error: 'That is not a web link (it must start with http:// or https://)' });
+      return webPdf(req, res, url);
     }
     if (u.pathname === '/api/preview') {
       const url = u.searchParams.get('url');

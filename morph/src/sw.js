@@ -13,6 +13,8 @@ try { registerRoute(new NavigationRoute(createHandlerBoundToURL('index.html'), {
 
 // ffmpeg core: cached the first time it is requested, then served offline forever.
 registerRoute(({ url }) => url.pathname.includes('/ffmpeg/'), new CacheFirst({ cacheName: 'morph-ffmpeg' }));
+// Text reading (OCR) and the small AI models (background removal, face finding): same idea.
+registerRoute(({ url }) => /\/(ocr|ort|models)\//.test(url.pathname), new CacheFirst({ cacheName: 'morph-engines' }));
 
 // Web Share Target: files shared from other apps land here, are parked in a cache and picked up by the app.
 self.addEventListener('fetch', (event) => {

@@ -1,9 +1,12 @@
 import { defineConfig } from 'vite';
 import { VitePWA } from 'vite-plugin-pwa';
+import { fileURLToPath } from 'node:url';
 
 export default defineConfig({
   base: './',
-  optimizeDeps: { exclude: ['@ffmpeg/ffmpeg', '@ffmpeg/util'] },
+  // AI runtime: use the build that loads its WebAssembly from /ort (cached for offline), not a second bundled copy.
+  resolve: { alias: { 'onnxruntime-web/wasm': fileURLToPath(new URL('./node_modules/onnxruntime-web/dist/ort.wasm.min.mjs', import.meta.url)) } },
+  optimizeDeps: { exclude: ['@ffmpeg/ffmpeg', '@ffmpeg/util', 'onnxruntime-web'] },
   worker: { format: 'es' },
   build: { target: 'es2022', chunkSizeWarningLimit: 4000 },
   server: { host: true },
@@ -18,7 +21,7 @@ export default defineConfig({
         // Everything the app needs is precached, so it works fully offline after the first visit.
         // The 32 MB ffmpeg core (only used for rare formats) is cached on first use / via Settings.
         globPatterns: ['**/*.{js,mjs,css,html,svg,png,webmanifest,woff2}'],
-        globIgnores: ['ffmpeg/**'],
+        globIgnores: ['ffmpeg/**', 'ocr/**', 'ort/**', 'models/**'],
         maximumFileSizeToCacheInBytes: 12 * 1024 * 1024,
       },
       manifest: {

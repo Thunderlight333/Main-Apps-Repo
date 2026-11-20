@@ -12,6 +12,7 @@ import { history } from '../core/history.js';
 import * as P from '../engines/pdf.js';
 import { thumbOf } from '../engines/image.js';
 import { app } from '../app.js';
+import { serverBase } from '../engines/downloader.js';
 
 const TOOLS = [
   { id: 'merge', title: 'Merge PDF', desc: 'Combine PDFs (and images) in the order you want', icon: 'merge', group: 'Organize', accept: 'pdf+image', multi: true, reorder: true },
@@ -26,6 +27,10 @@ const TOOLS = [
   { id: 'img2pdf', title: 'Images to PDF', desc: 'JPG, PNG, HEIC, WebP… into one PDF', icon: 'pdf', group: 'Convert', accept: 'image', multi: true, reorder: true },
   { id: 'pdf2txt', title: 'PDF to Text', desc: 'Extract all text', icon: 'text', group: 'Convert', accept: 'pdf', multi: true },
   { id: 'txt2pdf', title: 'Text to PDF', desc: 'TXT, Markdown, CSV, code → PDF', icon: 'file', group: 'Convert', accept: 'text', multi: true },
+  { id: 'scan', title: 'Scan to PDF', desc: 'Camera photos of paper → clean PDF', icon: 'camera', group: 'Convert', link: '#/scan' },
+  { id: 'ocr', title: 'OCR: make searchable', desc: 'Scanned PDF → text you can search and copy', icon: 'search', group: 'Convert', accept: 'pdf', multi: true },
+  { id: 'pdfa', title: 'PDF to PDF/A', desc: 'Long-term archive format offices ask for', icon: 'layers', group: 'Convert', accept: 'pdf', multi: true },
+  { id: 'webpdf', title: 'Web page to PDF', desc: 'Paste a link, get the page as a PDF', icon: 'link', group: 'Convert', url: true, online: true },
   { id: 'sign', title: 'Sign PDF', desc: 'Draw or type your signature and place it', icon: 'pen', group: 'Edit', accept: 'pdf', canvas: 'sign' },
   { id: 'edit', title: 'Add text', desc: 'Type anywhere on any page', icon: 'text', group: 'Edit', accept: 'pdf', canvas: 'text' },
   { id: 'numbers', title: 'Page numbers', desc: 'Add numbers with position & style', icon: 'hash', group: 'Edit', accept: 'pdf', multi: true },
@@ -33,6 +38,8 @@ const TOOLS = [
   { id: 'crop', title: 'Crop PDF', desc: 'Trim page margins', icon: 'crop', group: 'Edit', accept: 'pdf', multi: true },
   { id: 'protect', title: 'Protect PDF', desc: 'Encrypt with a password (AES-256)', icon: 'lock', group: 'Security', accept: 'pdf' },
   { id: 'unlock', title: 'Unlock PDF', desc: 'Remove a password you know', icon: 'unlock', group: 'Security', accept: 'pdf' },
+  { id: 'redact', title: 'Redact PDF', desc: 'Black out private info so it is really gone', icon: 'redact', group: 'Security', accept: 'pdf', canvas: 'redact' },
+  { id: 'compare', title: 'Compare PDFs', desc: 'See what changed between two versions', icon: 'swap', group: 'Organize', accept: 'pdf', multi: true, reorder: true },
 ];
 
 export default function pdfView({ sub, files }) {
@@ -71,8 +78,8 @@ export default function pdfView({ sub, files }) {
     const el = h('div',
       pageHeader('PDF tools', 'Everything you need for PDFs. Private, offline, no page or size limits.', 'pdf', h('label.search-wrap', icon('search', 16), search)),
       groups.map((g) => h('section.pdf-group', h('h2.group-title', g),
-        h('div.pdf-grid', TOOLS.filter((t) => t.group === g).map((t, i) => h('a.pdf-card', { href: `#/pdf/${t.id}`, 'data-k': (t.title + ' ' + t.desc).toLowerCase(), style: { '--i': i } },
-          h('span.pc-ic', icon(t.icon, 22)), h('strong', t.title), h('small', t.desc)))))),
+        h('div.pdf-grid', TOOLS.filter((t) => t.group === g).map((t, i) => h('a.pdf-card', { href: t.link || `#/pdf/${t.id}`, 'data-k': (t.title + ' ' + t.desc).toLowerCase(), style: { '--i': i } },
+          h('span.pc-ic', icon(t.icon, 22)), h('strong', t.title, t.online ? h('span.online-tag.xs', 'Online') : null), h('small', t.desc)))))),
       h('div.note.office-note', icon('info', 16), h('span', 'Word, Excel and PowerPoint ↔ PDF are not included: doing them accurately offline needs a full office suite (hundreds of MB), and results are still unreliable. Export to PDF from your office app, then use these tools.')));
     return el;
   }
@@ -112,10 +119,16 @@ function toolPage(t, incoming) {
   let pageGrid = null, canvasEd = null;
 
   const dz = dropZone({ title: t.multi ? 'Add files' : 'Choose a file', compact: true, multiple: !!t.multi, accept: ACCEPT_ATTR[t.accept], onFiles: add });
-  const landing = h('div.landing', dropZone({ title: `Drop ${t.accept === 'image' ? 'images' : t.accept === 'text' ? 'text files' : t.multi ? 'PDFs' : 'a PDF'} here`, multiple: !!t.multi, accept: ACCEPT_ATTR[t.accept], onFiles: add }));
+  const urlInput = h('input.input', { type: 'url', placeholder: 'https://example.com/article', inputmode: 'url', onkeydown: (e) => e.key === 'Enter' && go() });
+  const landing = t.url
+    ? h('div.landing', h('div.card.url-card',
+      h('label.field', h('span.field-label', 'Web page link'), h('div.inline', urlInput, goBtn)),
+      h('p.hint', icon('info', 14), ' Needs internet and the Morph server on a PC with Chrome or Edge. Pages that need a login may not work.'),
+      progress, resultHost))
+    : h('div.landing', dropZone({ title: `Drop ${t.accept === 'image' ? 'images' : t.accept === 'text' ? 'text files' : t.multi ? 'PDFs' : 'a PDF'} here`, multiple: !!t.multi, accept: ACCEPT_ATTR[t.accept], onFiles: add }));
   const work = h('div.tool-body.has-files',
     h('div.tool-main', dz, h('div.q-wrap', tools, listHost), pagesHost),
-    h('div.tool-side', optsHost, h('div.card.go-card', progress, goBtn, resultHost)));
+    h('div.tool-side', optsHost, t.url ? null : h('div.card.go-card', progress, goBtn, resultHost)));
   work.hidden = true;
   const el = h('div', h('div.crumbs', back), pageHeader(t.title, t.desc, t.icon), landing, work);
 
@@ -226,6 +239,30 @@ function toolPage(t, incoming) {
       case 'unlock':
         rows.push(field('Current password', h('input.input', { type: 'password', autocomplete: 'current-password', oninput: (e) => set('pw', e.target.value) }), 'Only works with a password you know.'));
         break;
+      case 'ocr':
+        rows.push(h('label.check', h('input', { type: 'checkbox', checked: def('skip', true), onchange: (e) => set('skip', e.target.checked) }), 'Skip pages that already have text (faster)'));
+        rows.push(h('label.check', h('input', { type: 'checkbox', checked: def('txt', false), onchange: (e) => set('txt', e.target.checked) }), 'Also save the text as a .txt file'));
+        rows.push(h('p.hint', 'Pages keep their exact look; invisible text is added so you can search and copy. English. The text reader (11 MB) downloads the first time.'));
+        break;
+      case 'pdfa':
+        rows.push(h('p.hint', 'Adds PDF/A-2b archive tags, an sRGB colour profile, and removes scripts. If the PDF uses fonts that are not built in, Morph tells you (those can only be fixed in the app that made the PDF).'));
+        break;
+      case 'compare':
+        rows.push(h('p.hint', files.length === 2 ? `Comparing “${files[0].name}” (old) with “${files[1].name}” (new).` : 'Add exactly 2 PDFs: the old version first, then the new one.'));
+        break;
+      case 'redact': {
+        const q = h('input.input', { placeholder: 'Word, name or number', onkeydown: (e) => e.key === 'Enter' && find(q.value) });
+        const find = async (what, label) => {
+          if (!canvasEd || !what) return;
+          const n = await canvasEd.findAndMark(what);
+          toast(n ? `${n} match${n > 1 ? 'es' : ''} blacked out${label ? ` (${label})` : ''}` : 'Nothing found', n ? 'success' : 'info');
+        };
+        rows.push(h('p.hint', 'Drag on the page to draw a black box. Or find text and black it out on every page.'));
+        rows.push(field('Find & black out', h('div.inline', q, h('button.btn.ghost.sm', { type: 'button', onclick: () => find(q.value) }, icon('search', 16), 'Find'))));
+        rows.push(h('div.btn-row', h('button.chip', { type: 'button', onclick: () => find(P.PATTERNS.email, 'emails') }, 'Emails'), h('button.chip', { type: 'button', onclick: () => find(P.PATTERNS.phone, 'phone numbers') }, 'Phone numbers'), h('button.chip', { type: 'button', onclick: () => find(P.PATTERNS.number, 'long numbers') }, 'Long numbers')));
+        rows.push(h('div.plan', icon('lock', 16), h('span', 'Pages with boxes are flattened into images, so the hidden text is truly removed (not just covered). Other pages stay as they are.')));
+        break;
+      }
       case 'sign': case 'edit':
         rows.push(h('p.hint', t.id === 'sign' ? 'Create your signature, then tap on the page to place it. Drag to move, use the corner to resize.' : 'Tap anywhere on the page to add text. Drag to move it.'));
         break;
@@ -235,19 +272,29 @@ function toolPage(t, incoming) {
   }
 
   async function go() {
-    if (!files.length) return;
-    const outFor = (suffix, ext = 'pdf') => outName(files[0].name, ext, suffix);
+    if (!files.length && !t.url) return;
+    const outFor = (suffix, ext = 'pdf') => outName(files[0]?.name || 'web-page.pdf', ext, suffix);
     let firstName = outFor(t.id);
     if (t.id === 'merge') firstName = 'merged.pdf';
     if (t.id === 'img2pdf') firstName = `${baseName(files[0].name)}${files.length > 1 ? '-and-more' : ''}.pdf`;
-    const multiOut = ['split', 'pdf2img'].includes(t.id) || (t.multi && !['merge', 'img2pdf'].includes(t.id) && files.length > 1);
+    const multiOut = ['split', 'pdf2img'].includes(t.id) || (t.id === 'ocr' && opts.txt) || (t.multi && !['merge', 'img2pdf'].includes(t.id) && files.length > 1);
     if (t.id === 'protect' && (!opts.pw || opts.pw !== opts.pw2)) { toast(opts.pw ? 'Passwords don\'t match' : 'Enter a password', 'error'); return; }
     if (t.id === 'unlock' && !opts.pw) { toast('Enter the password', 'error'); return; }
     if ((t.id === 'remove' || t.id === 'extract') && !pageGrid?.selected().length) { toast('Select at least one page', 'error'); return; }
+    if (t.id === 'compare' && files.length !== 2) { toast('Add exactly 2 PDFs to compare', 'error'); return; }
+    if (t.id === 'redact' && !canvasEd?.overlays().length) { toast('Draw a box or find text to black out first', 'error'); return; }
+    if (t.id === 'webpdf') {
+      const u = urlInput.value.trim();
+      let okUrl = false; try { const x = new URL(u); okUrl = /^https?:$/.test(x.protocol) && !!x.hostname; } catch { /* not a link */ }
+      if (!okUrl) { toast('Paste a full web link (starting with https://)', 'error'); return; }
+      if (!navigator.onLine) { toast('Web page to PDF needs internet', 'error'); return; }
+      firstName = 'web-page.pdf';
+    }
     const run = startRun(multiOut ? 2 : 1, firstName, 'application/pdf');
     progress.hidden = false; progress.set(0); goBtn.disabled = true; resultHost.replaceChildren();
     working = true;
     const tk = tasks.start({ title: t.title, route: `pdf/${t.id}`, iconName: t.icon });
+    let reportEl = null;
     const onP = (p) => { progress.set(p); tk.progress(p, `${Math.round(p * 100)}%`); };
     const results = [];
     const save = async (name, blob) => results.push(await writeBlob(run, name, blob));
@@ -276,6 +323,27 @@ function toolPage(t, incoming) {
           if (!ov.length) throw new Error(t.id === 'sign' ? 'Place your signature on a page first' : 'Add some text first');
           await save(outFor(t.id === 'sign' ? 'signed' : 'edited'), await P.applyOverlays(f0, ov)); break;
         }
+        case 'redact': {
+          const r = await P.redact(f0, canvasEd.overlays(), { onProgress: onP });
+          await save(outFor('redacted'), r.blob); break;
+        }
+        case 'compare': {
+          const rep = await comparePdfs(files[0], files[1], onP);
+          reportEl = rep.el;
+          await save(outName(files[1].name, 'html', 'changes'), rep.html);
+          break;
+        }
+        case 'webpdf': {
+          const u = urlInput.value.trim();
+          tk.status('Opening the page…'); progress.set(0.3);
+          let res;
+          try { res = await fetch(`${serverBase()}/api/webpdf?url=${encodeURIComponent(u)}`); }
+          catch { throw new Error('Could not reach the Morph server. Start it on your PC (npm run serve), then try again.'); }
+          if (!res.ok) { let m = 'Could not make a PDF of that page'; try { m = (await res.json()).error || m; } catch { /* */ } throw new Error(m); }
+          const name = decodeURIComponent((res.headers.get('Content-Disposition') || '').match(/filename\*=UTF-8''([^;]+)/)?.[1] || 'web-page.pdf');
+          await save(name, await res.blob());
+          break;
+        }
         case 'protect': await save(outFor('protected'), await P.protect(f0, { userPassword: opts.pw, allowPrint: opts.print !== false, allowCopy: !!opts.copy })); break;
         case 'unlock':
           try { await save(outFor('unlocked'), await P.unlock(f0, opts.pw)); } catch { throw new Error('Wrong password, or this PDF uses an unsupported encryption.'); }
@@ -291,6 +359,16 @@ function toolPage(t, incoming) {
             else if (t.id === 'numbers') await save(outName(f.name, 'pdf', 'numbered'), await P.pageNumbers(f, opts));
             else if (t.id === 'watermark') await save(outName(f.name, 'pdf', 'watermarked'), await P.watermark(f, opts));
             else if (t.id === 'crop') await save(outName(f.name, 'pdf', 'cropped'), await P.crop(f, opts));
+            else if (t.id === 'ocr') {
+              const r = await P.ocrPdf(f, { skipText: opts.skip !== false, onProgress: sub, onStatus: (m) => tk.status(m) });
+              await save(outName(f.name, 'pdf', 'searchable'), r.blob);
+              if (opts.txt) await save(outName(f.name, 'txt', ''), new Blob([r.text], { type: 'text/plain' }));
+              if (!r.done) toast(`${f.name}: every page already had text, so nothing needed reading.`);
+            } else if (t.id === 'pdfa') {
+              const r = await P.toPdfA(f);
+              await save(outName(f.name, 'pdf', 'pdfa'), r.blob);
+              if (r.unembeddedFonts) toast(`${f.name}: ${r.unembeddedFonts} font(s) aren't built into the PDF. Strict archive checkers may reject it. Re-export from the original app with “embed fonts”.`, 'info', 9000);
+            }
             else if (t.id === 'pdf2img') {
               const imgs = await P.toImages(f, { format: opts.format || 'jpg', dpi: opts.dpi || 150 }, sub);
               for (const im of imgs) await save(outName(f.name, opts.format || 'jpg', `p${im.page}`), im.blob);
@@ -299,14 +377,14 @@ function toolPage(t, incoming) {
           }
       }
       progress.set(1);
-      const inSize = files.reduce((a, f) => a + f.size, 0), outSize = results.reduce((a, r) => a + r.size, 0);
-      history.add({ tool: t.title, name: files.length > 1 ? `${files.length} files` : files[0].name, inSize, outSize, kind: 'pdf' });
-      results.forEach((r) => recent.add(r, { tool: t.title }));
+      const inSize = files.reduce((a, f) => a + f.size, 0) || results[0].size, outSize = results.reduce((a, r) => a + r.size, 0);
+      history.add({ tool: t.title, name: files.length > 1 ? `${files.length} files` : files[0]?.name || results[0].name, inSize, outSize, kind: 'pdf' });
+      results.forEach((r) => recent.add(r, { tool: t.title, local: !t.online }));
       const diff = Math.round((1 - outSize / inSize) * 100);
       resultHost.replaceChildren(h('div.result-card',
         h('div.rc-info', icon('check', 18), h('strong', results.length > 1 ? `${results.length} files ready` : results[0].name),
-          h('span.muted', `${fmtBytes(outSize)}${t.id === 'compress' && diff > 0 ? ` (−${diff}%)` : ''}`), localBadge()),
-        h('div.rc-actions', resultActions(results))));
+          h('span.muted', `${fmtBytes(outSize)}${t.id === 'compress' && diff > 0 ? ` (−${diff}%)` : ''}`), t.online ? h('span.online-tag.xs', 'Online') : localBadge()),
+        h('div.rc-actions', resultActions(results))), reportEl);
       feedback('done');
       tk.done(results.length > 1 ? `${results.length} files ready` : results[0].name);
     } catch (e) {
@@ -389,7 +467,8 @@ function canvasEditor(doc, kind) {
       h('button.icon-btn', { 'aria-label': 'Previous page', onclick: () => goPage(page - 1) }, icon('back', 18)), pageLbl,
       h('button.icon-btn', { 'aria-label': 'Next page', onclick: () => goPage(page + 1) }, icon('chevron', 18))),
     kind === 'sign' ? h('button.btn.primary.sm', { onclick: makeSignature }, icon('pen', 16), 'Create signature')
-      : h('label.color-pick', 'Color', h('input', { type: 'color', value: color.v, oninput: (e) => (color.v = e.target.value) })));
+      : kind === 'redact' ? h('span.muted.small', 'Drag to black out')
+        : h('label.color-pick', 'Color', h('input', { type: 'color', value: color.v, oninput: (e) => (color.v = e.target.value) })));
   const el = h('div.pe', toolbar, h('div.pe-stage', pageBox));
   let canvas = null;
 
@@ -407,6 +486,9 @@ function canvasEditor(doc, kind) {
   }
   function ovEl(o) {
     const del = h('button.ov-del', { 'aria-label': 'Delete', onclick: (e) => { e.stopPropagation(); overlays.splice(overlays.indexOf(o), 1); paint(); } }, icon('x', 12));
+    if (o.kind === 'box') {
+      return h('div.ov.ov-box', { style: { left: o.x * 100 + '%', top: o.y * 100 + '%', width: o.w * 100 + '%', height: o.h * 100 + '%' } }, del);
+    }
     let content;
     if (o.kind === 'image') content = h('img', { src: o.url, alt: 'signature', draggable: false });
     else {
@@ -438,6 +520,7 @@ function canvasEditor(doc, kind) {
     if (e.target !== layer) return;
     const r = layer.getBoundingClientRect();
     const x = (e.clientX - r.left) / r.width, y = (e.clientY - r.top) / r.height;
+    if (kind === 'redact') return;
     if (kind === 'sign') {
       if (!signature) { makeSignature(); return; }
       const w = 0.28, hh = (w * r.width) / signature.ratio / r.height;
@@ -449,6 +532,26 @@ function canvasEditor(doc, kind) {
     if (kind === 'text') { const last = layer.lastElementChild?.querySelector('.ov-text'); if (last) { last.focus(); document.getSelection().selectAllChildren(last); } }
   });
   new ResizeObserver(() => layer.style.setProperty('--ph', layer.clientHeight + 'px')).observe(layer);
+  // Redact: drag to draw black boxes.
+  if (kind === 'redact') layer.addEventListener('pointerdown', (e) => {
+    if (e.target !== layer) return;
+    e.preventDefault();
+    const r = layer.getBoundingClientRect();
+    const x0 = (e.clientX - r.left) / r.width, y0 = (e.clientY - r.top) / r.height;
+    const ghost = h('div.ov.ov-box.drawing'); layer.append(ghost);
+    layer.setPointerCapture(e.pointerId);
+    let box = null;
+    const mv = (ev) => {
+      const x1 = clamp((ev.clientX - r.left) / r.width, 0, 1), y1 = clamp((ev.clientY - r.top) / r.height, 0, 1);
+      box = { x: Math.min(x0, x1), y: Math.min(y0, y1), w: Math.abs(x1 - x0), h: Math.abs(y1 - y0) };
+      Object.assign(ghost.style, { left: box.x * 100 + '%', top: box.y * 100 + '%', width: box.w * 100 + '%', height: box.h * 100 + '%' });
+    };
+    const up = () => {
+      layer.removeEventListener('pointermove', mv); layer.removeEventListener('pointerup', up); ghost.remove();
+      if (box && box.w > 0.005 && box.h > 0.004) { overlays.push({ page: page - 1, kind: 'box', ...box }); paint(); }
+    };
+    layer.addEventListener('pointermove', mv); layer.addEventListener('pointerup', up);
+  });
 
   function makeSignature() {
     const pad = document.createElement('canvas'); pad.width = 900; pad.height = 300; pad.className = 'sig-pad';
@@ -490,6 +593,12 @@ function canvasEditor(doc, kind) {
   return {
     el,
     overlays: () => overlays.map((o) => ({ ...o })),
+    async findAndMark(q) {
+      const found = await P.findText(doc, P.textMatcher(q));
+      for (const b of found) if (!overlays.some((o) => o.kind === 'box' && o.page === b.page && Math.abs(o.x - b.x) < 0.002 && Math.abs(o.y - b.y) < 0.002)) overlays.push({ kind: 'box', page: b.page, x: b.x, y: b.y, w: b.w, h: b.h });
+      paint();
+      return found.length;
+    },
     destroy: () => { P.closeView(doc); overlays.forEach((o) => o.url && URL.revokeObjectURL(o.url)); },
   };
 }
@@ -508,3 +617,112 @@ function trimCanvas(c) {
 
 export { TOOLS as PDF_TOOLS };
 void app;
+
+// ---------------------------------------------------------------------------------------------
+// Compare two PDFs: word-level text changes per page, plus a picture check for layout/image changes.
+// ---------------------------------------------------------------------------------------------
+function diffWords(a, b) {
+  const N = a.length, M = b.length, max = N + M, off = max + 1;
+  if (!N || !M) return [...a.map((w) => ['-', w]), ...b.map((w) => ['+', w])];
+  const v = new Int32Array(2 * max + 3);
+  const trace = [];
+  const LIMIT = 1500;
+  for (let d = 0; d <= max; d++) {
+    if (d > LIMIT) return null; // too different to show word by word
+    trace.push(v.slice());
+    for (let k = -d; k <= d; k += 2) {
+      let x = k === -d || (k !== d && v[k - 1 + off] < v[k + 1 + off]) ? v[k + 1 + off] : v[k - 1 + off] + 1;
+      let y = x - k;
+      while (x < N && y < M && a[x] === b[y]) { x++; y++; }
+      v[k + off] = x;
+      if (x >= N && y >= M) {
+        const ops = [];
+        let cx = N, cy = M;
+        for (let dd = d; dd > 0; dd--) {
+          const tv = trace[dd], kk = cx - cy;
+          const pk = kk === -dd || (kk !== dd && tv[kk - 1 + off] < tv[kk + 1 + off]) ? kk + 1 : kk - 1;
+          const px = tv[pk + off], py = px - pk;
+          while (cx > px && cy > py) { ops.push(['=', a[cx - 1]]); cx--; cy--; }
+          if (cx === px) { ops.push(['+', b[cy - 1]]); cy--; } else { ops.push(['-', a[cx - 1]]); cx--; }
+        }
+        while (cx > 0 && cy > 0) { ops.push(['=', a[cx - 1]]); cx--; cy--; }
+        return ops.reverse();
+      }
+    }
+  }
+  return null;
+}
+/** Collapse long unchanged stretches. Returns [{ t: '='|'+'|'-'|'…', s }]. */
+function compact(ops) {
+  const runs = [];
+  for (const [t, w] of ops) { const last = runs.at(-1); if (last && last.t === t) last.w.push(w); else runs.push({ t, w: [w] }); }
+  return runs.map((r, i) => {
+    if (r.t !== '=' || r.w.length <= 16) return { t: r.t, s: r.w.join(' ') };
+    const head = i > 0 ? r.w.slice(0, 7).join(' ') : '', tail = i < runs.length - 1 ? r.w.slice(-7).join(' ') : '';
+    return { t: '=', s: [head, '…', tail].filter(Boolean).join(' ') };
+  });
+}
+async function pictureDiff(va, vb, n) {
+  const A = await P.renderPage(va, n, { maxSide: 420 }), B = await P.renderPage(vb, n, { maxSide: 420 });
+  const w = A.width, hh = A.height;
+  const c = document.createElement('canvas'); c.width = w; c.height = hh;
+  const ctx = c.getContext('2d', { willReadFrequently: true });
+  ctx.drawImage(B, 0, 0, w, hh);
+  const bd = ctx.getImageData(0, 0, w, hh);
+  ctx.clearRect(0, 0, w, hh); ctx.drawImage(A, 0, 0);
+  const ad = ctx.getImageData(0, 0, w, hh);
+  let changed = 0;
+  const out = ctx.createImageData(w, hh);
+  for (let i = 0; i < ad.data.length; i += 4) {
+    const diff = Math.abs(ad.data[i] - bd.data[i]) + Math.abs(ad.data[i + 1] - bd.data[i + 1]) + Math.abs(ad.data[i + 2] - bd.data[i + 2]);
+    const g = (bd.data[i] * 0.3 + bd.data[i + 1] * 0.59 + bd.data[i + 2] * 0.11) * 0.35 + 165;
+    if (diff > 90) { changed++; out.data[i] = 230; out.data[i + 1] = 30; out.data[i + 2] = 60; }
+    else { out.data[i] = out.data[i + 1] = out.data[i + 2] = g; }
+    out.data[i + 3] = 255;
+  }
+  ctx.putImageData(out, 0, 0);
+  A.width = A.height = B.width = B.height = 0;
+  return { ratio: changed / (w * hh), url: c.toDataURL('image/jpeg', 0.8) };
+}
+async function comparePdfs(fa, fb, onP) {
+  const va = await P.openView(fa), vb = await P.openView(fb);
+  try {
+    const wa = await P.pageWords(va), wb = await P.pageWords(vb);
+    const n = Math.max(va.numPages, vb.numPages);
+    const pages = [];
+    for (let i = 0; i < n; i++) {
+      const a = wa[i] || [], b = wb[i] || [];
+      const ops = diffWords(a, b);
+      const textChanged = ops ? ops.some(([t]) => t !== '=') : true;
+      let pic = null;
+      if (i < va.numPages && i < vb.numPages) pic = await pictureDiff(va, vb, i + 1);
+      const looks = pic ? pic.ratio > 0.002 : true;
+      pages.push({ n: i + 1, onlyA: i >= vb.numPages, onlyB: i >= va.numPages, ops, textChanged, looks, pic });
+      onP((i + 1) / n);
+    }
+    const changed = pages.filter((p) => p.textChanged || p.looks);
+    const added = pages.reduce((a, p) => a + (p.ops ? p.ops.filter(([t]) => t === '+').length : 0), 0);
+    const removed = pages.reduce((a, p) => a + (p.ops ? p.ops.filter(([t]) => t === '-').length : 0), 0);
+    const summary = changed.length
+      ? `${changed.length} of ${n} page${n > 1 ? 's' : ''} changed · ${added} word${added === 1 ? '' : 's'} added · ${removed} removed${va.numPages !== vb.numPages ? ` · pages: ${va.numPages} → ${vb.numPages}` : ''}`
+      : 'No differences found. The two PDFs look the same.';
+    const textNode = (p) => p.onlyA ? h('p.cmp-text', h('del', 'This page was removed in the new version.'))
+      : p.onlyB ? h('p.cmp-text', h('ins', 'This page is new.'))
+        : !p.ops ? h('p.cmp-text.muted', 'The text on this page changed a lot.')
+          : h('p.cmp-text', compact(p.ops).map((r) => (r.t === '+' ? h('ins', r.s + ' ') : r.t === '-' ? h('del', r.s + ' ') : h('span', r.s + ' '))));
+    const el = h('div.cmp',
+      h('div.plan', icon('swap', 16), h('span', summary)),
+      h('div.cmp-legend', h('span', h('ins', 'green'), ' = added'), h('span', h('del', 'red'), ' = removed'), h('span', h('i.cmp-dot'), ' = looks different')),
+      ...changed.map((p) => h('div.card.cmp-page',
+        h('div.cmp-head', h('strong', `Page ${p.n}`), p.looks && !p.textChanged ? h('span.badge.grow', 'Layout or pictures changed') : null),
+        p.textChanged ? textNode(p) : null,
+        p.pic && p.looks ? h('img.cmp-img', { src: p.pic.url, alt: `Changes on page ${p.n}`, loading: 'lazy' }) : null)));
+    const esc = (x) => String(x).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+    const html = `<!doctype html><meta charset="utf-8"><title>Changes: ${esc(fa.name)} → ${esc(fb.name)}</title>
+<style>body{font:15px/1.6 system-ui,sans-serif;max-width:860px;margin:32px auto;padding:0 16px;color:#111}ins{background:#d1fae5;text-decoration:none}del{background:#fee2e2;color:#991b1b}.p{border:1px solid #ddd;border-radius:10px;padding:14px 16px;margin:14px 0}img{max-width:100%;border:1px solid #eee;border-radius:6px}</style>
+<h1>Changes</h1><p><b>Old:</b> ${esc(fa.name)}<br><b>New:</b> ${esc(fb.name)}</p><p>${esc(summary)}</p>
+${changed.map((p) => `<div class="p"><h3>Page ${p.n}</h3>${p.onlyA ? '<p><del>Removed in the new version.</del></p>' : p.onlyB ? '<p><ins>New page.</ins></p>' : !p.ops ? '<p>The text changed a lot.</p>' : p.textChanged ? `<p>${compact(p.ops).map((r) => (r.t === '+' ? `<ins>${esc(r.s)}</ins>` : r.t === '-' ? `<del>${esc(r.s)}</del>` : esc(r.s))).join(' ')}</p>` : ''}${p.pic && p.looks ? `<img src="${p.pic.url}" alt="">` : ''}</div>`).join('')}
+<p style="color:#888">Made with Morph, on this device.</p>`;
+    return { el, html: new Blob([html], { type: 'text/html' }) };
+  } finally { P.closeView(va); P.closeView(vb); }
+}
