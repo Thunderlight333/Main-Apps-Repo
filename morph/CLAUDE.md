@@ -56,6 +56,10 @@ Vite + vanilla JS ES modules, with no UI framework. Entry is `src/main.js`, the 
 - `engines/share.js` plus `views/links.js`: Gyazo-style share links. `POST /api/share` stores files in `server/shared/` (gitignored), `/v/<id>` is a server-rendered viewing page, `/v/<id>.<ext>` the file (ranges). Delete needs the per-link key kept in the app's localStorage. The service worker must not serve the app shell for `/v/` or `/api/`.
 - Editor sound: volume, fades and music (`opts.audio.music`) go through ffmpeg (`argsFromOpts`, extra input mounted by `runFFmpeg`). Video is stream-copied when nothing visual changed.
 
+## Publishing (automatic)
+- `.github/workflows/publish-morph.yml` (repo root): on every push to `main` that touches `morph/**` (or by hand: Actions → Publish Morph → Run workflow) it runs `npm ci` + `npm run build` in `morph/`, replaces the `morph-app` branch with `morph/dist` + `.nojekyll` while keeping old `assets/`, and pushes with the GITHUB_TOKEN. Pages then deploys `morph-app`. So publishing = push to `main`; never hand-edit `morph-app`.
+- The build is reproducible: a clean clone builds byte-identical files.
+
 ## Commands
 - `npm install`, then `npm run build` and `npm run serve` (port 8787), or `npm run dev`.
 - Tests were done with Playwright scripts (not in the repo): convert, compress, editor, all PDF tools, offline reload, and a mobile Pixel 7 layout. All passed.

@@ -1,0 +1,73 @@
+# Automatic publisher for the Morph app.
+# Every time something in the morph/ folder changes on the main branch, GitHub:
+#   1. builds the app (npm ci + npm run build in morph/),
+#   2. copies the finished app (morph/dist) onto the morph-app branch, which GitHub Pages serves,
+#      keeping the old files in assets/ so copies of the app that are still open keep working,
+#   3. pushes it. The site updates about 1-2 minutes later.
+# You can also run it by hand: GitHub → Actions → "Publish Morph" → "Run workflow".
+name: Publish Morph
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'morph/**'
+      - '.github/workflows/publish-morph.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: publish-morph
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Get the code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: morph/package-lock.json
+
+      - name: Install
+        working-directory: morph
+        run: npm ci
+
+      - name: Build the app
+        working-directory: morph
+        run: npm run build
+
+      - name: Get the published site (morph-app branch)
+        uses: actions/checkout@v4
+        with:
+          ref: morph-app
+          path: site
+
+      - name: Replace the site with the new build (old assets kept)
+        run: |
+          set -e
+          cd site
+          find . -mindepth 1 -maxdepth 1 ! -name .git ! -name assets -exec rm -rf {} +
+          cp -r ../morph/dist/. .
+          touch .nojekyll
+
+      - name: Publish
+        working-directory: site
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898341+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "Nothing changed on the site."
+            exit 0
+          fi
+          git commit -m "Publish Morph ${GITHUB_SHA::7} (automatic)"
+          git push origin HEAD:morph-app
