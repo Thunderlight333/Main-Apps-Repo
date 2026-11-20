@@ -113,7 +113,17 @@ async function render() {
     host.classList.add('loading');
     let mod;
     try { mod = await loaders[id](); } catch (e) {
-      console.error(e); toast('Could not load this screen. If you are offline, open it once while online.', 'error'); host.classList.remove('loading'); return;
+      console.error(e); host.classList.remove('loading');
+      // Usually means Morph was just updated and this open copy is the old one: reload into the new version (once).
+      let last = 0; try { last = +sessionStorage.getItem('morph.reloaded') || 0; } catch { /* */ }
+      if (navigator.onLine && Date.now() - last > 30e3) {
+        try { sessionStorage.setItem('morph.reloaded', String(Date.now())); } catch { /* */ }
+        toast('Morph was updated. Loading the new version…', 'info', 4000, { key: 'upd' });
+        setTimeout(() => location.reload(), 300);
+        return;
+      }
+      toast(navigator.onLine ? 'Could not load this screen. Close Morph and open it again.' : 'Could not load this screen. If you are offline, open it once while online.', 'error', 4000, { key: 'loadfail' });
+      return;
     }
     host.classList.remove('loading');
     if (token !== navToken) return;

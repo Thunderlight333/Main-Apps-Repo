@@ -22,6 +22,9 @@ Vite + vanilla JS ES modules, with no UI framework. Entry is `src/main.js`, the 
 - **ffmpeg.wasm** has one instance, so `runFFmpeg` queues jobs ("Waiting for the universal engine…").
 - **Back button:** switching screens uses `history.replaceState` (in-app `#/` links are intercepted), so history never piles up. After the first touch the app keeps a guard entry: Back closes a dialog, then goes up (PDF tool → PDF tools → Home), then on Home shows "Press back again to exit" (or a warning with a Stay button when tasks are running); a second Back leaves. Browsers only honour this after the user has touched the page.
 
+## Updates
+- `src/main.js` checks for a new service worker on resume and every 30 min, then reloads (after running tasks finish). If a lazily loaded screen file fails while online (an old open copy after an update), `app.js` reloads once into the new version. When publishing, keep the previous `assets/` files on `morph-app` so old open copies can still load them.
+
 ## Engines
 - `engines/media.js`: Mediabunny (WebCodecs). Handles probe, transcode (crop/rotate/flip/trim/resize/bitrate), and filmstrip. It registers the mp3/aac/flac encoder extensions when the browser lacks them.
 - `engines/ffmpeg.js`: ffmpeg.wasm fallback (AVI, GIF, speed changes, unknown formats). The core is copied to `public/ffmpeg/` by `scripts/copy-assets.mjs` and cached at runtime.
